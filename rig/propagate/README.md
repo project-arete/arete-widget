@@ -60,21 +60,33 @@ the lesson: the contract itself tells you what can never be observed.
 
 ## Findings so far (living record)
 
-**2026-07-19, dashboard.test.cns.dev (public test realm):** the propagate
-flag is NOT enforced. All six properties — including `draft` and `notes` —
-appear as connection properties, and post-bind writes to non-propagated
-properties flow to peers continuously (verified with sequential writes; not
-a bind-time copy). Propagated properties behave exactly as specified,
-including the ping → echo round trip. Conclusion: the *contract semantics*
-are as designed, but this orchestrator build propagates everything.
-Implication worth noting: on non-enforcing realms, "local" values are not
-actually private.
+**2026-07-19, dashboard.test.cns.dev — the full story in three acts:**
 
-Pending: the same experiment against other realms (e.g. an Arete Hosting
-orchestrator) to establish whether enforcement is a version/configuration
-matter or not yet implemented anywhere:
+1. **Unknown-CP era** (minutes after registration, orchestrator not yet aware
+   of the CP): pairs bound instantly and EVERYTHING propagated — including
+   `draft` and `notes`, continuously (verified with sequential post-bind
+   writes). Unknown profiles are brokered permissively with no flag handling.
+2. **Bind-blocking** (once the orchestrator learned the CP): pairs whose
+   capabilities carried a non-propagated VALUE at bind time were never bound
+   at all (60s+), while `padi.light` pairs bound in seconds and a
+   padi.test.propagate pair with NO non-propagated values bound in 5s. This
+   is why the rig widgets no longer initialize `draft`/`notes` — write them
+   from the faceplate after binding.
+3. **Post-bind leak** (bound pair, orchestrator aware of the CP): writes to
+   `draft` still appeared in connection properties and reached the peer.
+   The propagate flag is not enforced for data flow.
+
+**Net:** propagated properties behave exactly per spec (including the
+ping → echo round trip). The flag's only observable effect today is the
+bind-blocking side effect in act 2 — data-flow enforcement is absent.
+On such realms, "local" values are NOT actually private.
+
+**anto.aretehosting.com (chart arete 1.5.3):** first run (rig with
+non-propagated init values, post-awareness) did not bind — consistent with
+act 2. Re-run with the bind-safe rig pending, to establish whether that
+orchestrator also leaks post-bind:
 
 ```shell
-ARETE_HOST=<your>.aretehosting.com ARETE_USER=... ARETE_PASS=... \
+ARETE_HOST=anto.aretehosting.com ARETE_USER=... ARETE_PASS=... \
   ARETE_ALLOW_SELF_SIGNED=1 npm run test:propagate
 ```

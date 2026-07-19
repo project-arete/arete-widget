@@ -49,7 +49,10 @@ for (const p of profile.versions.at(-1).properties) {
   console.log(`   ${p.name.padEnd(9)} ${'server' in p ? 'server' : 'client'}  propagate=${'propagate' in p}`);
 }
 
-installSystemIdPatch('test-propagate-' + crypto.randomUUID());
+// Stable identity: every run reuses ONE realm system ("Propagate Experiment")
+// instead of littering the realm with a new system per run. (Nodes still
+// accumulate inside it — no delete command exists in the SDK.)
+installSystemIdPatch('padi-propagate-experiment-rig');
 
 const opts = {
   protocol: process.env.ARETE_PROTOCOL || 'wss:',
@@ -122,12 +125,13 @@ try {
     contextName: tx.contextName,
   });
 
-  console.log('4) Waiting for the broker to bind ...');
+  const bindMs = Number(process.env.ARETE_BIND_TIMEOUT || 60000);
+  console.log(`4) Waiting for the broker to bind (up to ${bindMs / 1000}s — ARETE_BIND_TIMEOUT to change) ...`);
   await waitFor('binding', () => {
     const a = manager.getInstance(tx.id);
     const b = manager.getInstance(rx.id);
     return a && b && a.connections > 0 && b.connections > 0;
-  });
+  }, bindMs);
   console.log('   bound ✔');
 
   console.log('5) Writing BOTH flavors on BOTH sides ...');

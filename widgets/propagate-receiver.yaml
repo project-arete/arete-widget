@@ -39,7 +39,8 @@ view:
 behavior:
   init:
     feedback: ready
-    notes: these never leave the receiver
+    # NB: notes deliberately NOT initialized — see the sender's note; write
+    # them from the faceplate after binding.
   rules:
     - when: ping
       set: echo
