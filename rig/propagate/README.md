@@ -84,7 +84,8 @@ connection-external. (Note the flag is about CONTRACT SCOPE, not
 confidentiality — capability properties are realm-visible in the namespace
 regardless.)
 
-**anto.aretehosting.com (chart arete 1.5.3), 2026-07-19:** IDENTICAL
+**A second, independently-operated orchestrator (a self-hosted Arete
+fleet, chart 1.5.3), 2026-07-19:** IDENTICAL
 behavior to the test host. First run (rig with non-propagated init values)
 never bound — act 2 confirmed. Bind-safe re-run: bound promptly, all
 propagated properties correct including ping → echo, and the same leak —
