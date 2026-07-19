@@ -7,7 +7,9 @@
 
 import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
@@ -27,6 +29,36 @@ const ROOT = path.join(__dirname, '..');
 
 const DEFAULT_SYSTEM_NAME = "Arete Widget";
 const DEFAULT_LIBRARY_URL = 'https://project-arete.github.io/widget-library';
+
+// ---- personalized default system name -------------------------------------
+// A brand-new user's system defaults to "<First>'s Widgets" using the OS
+// account's real name — macOS: `id -F` (full name); Linux: the passwd GECOS
+// field; otherwise the login username. Falls back to the product default when
+// nothing usable is found. This is only ever a SEED for the (editable) System
+// name field — never forced, and a saved setting or ARETE_SYSTEM_NAME wins.
+let _firstNameMemo; // undefined = not computed; null = none; string = first name
+function osFirstName() {
+  if (_firstNameMemo !== undefined) return _firstNameMemo;
+  _firstNameMemo = null;
+  let full = '';
+  try {
+    if (process.platform === 'darwin') {
+      full = execFileSync('id', ['-F'], { timeout: 800, encoding: 'utf8' }).trim();
+    } else if (process.platform === 'linux') {
+      const line = String(execFileSync('getent', ['passwd', os.userInfo().username], { timeout: 800, encoding: 'utf8' }));
+      full = (line.split(':')[4] || '').split(',')[0].trim();
+    }
+  } catch (_) { /* command missing or denied — fall through to username */ }
+  if (!full) { try { full = os.userInfo().username || ''; } catch (_) {} }
+  // First name-like token (Unicode letters), Title-cased.
+  const tok = (full.match(/[\p{L}][\p{L}'’-]*/u) || [''])[0];
+  if (tok) _firstNameMemo = tok.charAt(0).toUpperCase() + tok.slice(1);
+  return _firstNameMemo;
+}
+function defaultSystemName() {
+  const fn = osFirstName();
+  return fn ? `${fn}'s Widgets` : DEFAULT_SYSTEM_NAME;
+}
 
 const service = new AreteService();
 let manager = null;
@@ -345,7 +377,7 @@ app.whenReady().then(async () => {
       rememberPassword: !!s.rememberPassword,
       autoConnect: !!s.autoConnect,
       canRememberPassword: settings.canEncrypt(),
-      systemName: s.systemName || env.ARETE_SYSTEM_NAME || DEFAULT_SYSTEM_NAME,
+      systemName: s.systemName || env.ARETE_SYSTEM_NAME || defaultSystemName(),
       theme: s.theme || 'dark',
       userWidgetsDir,
       libraryUrl: effectiveLibraryUrl(),
@@ -370,7 +402,7 @@ app.whenReady().then(async () => {
     const { rememberPassword, autoConnect, systemName, ...conn } = opts || {};
     const st = await service.connect({
       ...conn,
-      systemName: (systemName || '').trim() || DEFAULT_SYSTEM_NAME,
+      systemName: (systemName || '').trim() || defaultSystemName(),
     });
     // Persist config AFTER a successful connect.
     settings.writeSettings({
@@ -381,7 +413,7 @@ app.whenReady().then(async () => {
         username: conn.username,
         allowSelfSigned: !!conn.allowSelfSigned,
       },
-      systemName: (systemName || '').trim() || DEFAULT_SYSTEM_NAME,
+      systemName: (systemName || '').trim() || defaultSystemName(),
       rememberPassword: !!rememberPassword,
       passwordEnc: rememberPassword ? settings.encryptPassword(conn.password) : null,
       autoConnect: !!autoConnect,
