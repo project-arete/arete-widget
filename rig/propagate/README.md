@@ -81,12 +81,14 @@ ping → echo round trip). The flag's only observable effect today is the
 bind-blocking side effect in act 2 — data-flow enforcement is absent.
 On such realms, "local" values are NOT actually private.
 
-**anto.aretehosting.com (chart arete 1.5.3):** first run (rig with
-non-propagated init values, post-awareness) did not bind — consistent with
-act 2. Re-run with the bind-safe rig pending, to establish whether that
-orchestrator also leaks post-bind:
+**anto.aretehosting.com (chart arete 1.5.3), 2026-07-19:** IDENTICAL
+behavior to the test host. First run (rig with non-propagated init values)
+never bound — act 2 confirmed. Bind-safe re-run: bound promptly, all
+propagated properties correct including ping → echo, and the same leak —
+`draft` and `notes` appeared in connection properties and reached the peers.
 
-```shell
-ARETE_HOST=anto.aretehosting.com ARETE_USER=... ARETE_PASS=... \
-  ARETE_ALLOW_SELF_SIGNED=1 npm run test:propagate
-```
+**Conclusion (two independent orchestrator deployments, same result):**
+propagate enforcement for data flow is absent from current orchestrator
+builds, and non-propagated values present at bind time block brokerage.
+Both are orchestrator-side issues; the registry contract and this rig are
+the reproduction.
