@@ -487,13 +487,23 @@ function renderTiles() {
     const peerBit = peerNames.length
       ? `<div class="tile-peers">⇄ ${esc(peerNames.slice(0, 3).join(', '))}${peerNames.length > 3 ? '…' : ''}</div>`
       : '';
-    const menu = menuFor === i.id
-      ? `<div class="tile-menu" data-menu-panel>
-          <button type="button" data-edit="${esc(i.id)}">Edit…</button>
-          <button type="button" class="danger" data-remove="${esc(i.id)}">${removeArmed === i.id ? 'Sure? Remove' : 'Remove'}</button>
-        </div>`
-      : '';
-    return `<div class="tile" data-open="${esc(i.id)}"${accent} role="button" tabindex="0" title="Open the faceplate">
+    let menu = '';
+    if (menuFor === i.id) {
+      menu = removeArmed === i.id
+        ? `<div class="tile-menu confirm" data-menu-panel>
+            <div class="menu-q">Remove “${esc(i.name)}”?</div>
+            <div class="menu-note">Removes it from this app. The realm node is left as-is.</div>
+            <div class="menu-row">
+              <button type="button" data-remove-cancel>Cancel</button>
+              <button type="button" class="danger" data-remove-yes="${esc(i.id)}">Remove</button>
+            </div>
+          </div>`
+        : `<div class="tile-menu" data-menu-panel>
+            <button type="button" data-edit="${esc(i.id)}">Edit…</button>
+            <button type="button" class="danger" data-remove="${esc(i.id)}">Remove…</button>
+          </div>`;
+    }
+    return `<div class="tile ${menuFor === i.id ? 'menu-open' : ''}" data-open="${esc(i.id)}"${accent} role="button" tabindex="0" title="Open the faceplate">
       <div class="tile-top">
         <span class="tile-icon">${esc(icon)}</span>
         <button type="button" class="ghost tile-more" data-menu="${esc(i.id)}" aria-label="Widget menu" title="Edit or remove">⋯</button>
@@ -528,18 +538,21 @@ els.tileGrid.addEventListener('click', (e) => {
   }
   const rm = e.target.closest('[data-remove]');
   if (rm) {
-    const id = rm.dataset.remove;
-    if (removeArmed === id) {
-      removeArmed = null;
-      menuFor = null;
-      window.arete.widgetRemove(id);
-    } else {
-      removeArmed = id;
-      renderTiles();
-      setTimeout(() => {
-        if (removeArmed === id) { removeArmed = null; renderTiles(); }
-      }, 3000);
-    }
+    removeArmed = rm.dataset.remove; // show the confirm view inside the menu
+    renderTiles();
+    return;
+  }
+  if (e.target.closest('[data-remove-cancel]')) {
+    removeArmed = null; // back to the Edit / Remove menu
+    renderTiles();
+    return;
+  }
+  const yes = e.target.closest('[data-remove-yes]');
+  if (yes) {
+    const id = yes.dataset.removeYes;
+    removeArmed = null;
+    menuFor = null;
+    window.arete.widgetRemove(id);
     return;
   }
   if (e.target.closest('[data-plus]')) {
@@ -586,6 +599,21 @@ async function doConnect(auto) {
     if (auto) activateTab('panel-config');
   }
 }
+
+// The "change" link on the system-name note jumps to Config and focuses the field.
+els.systemNameNote.addEventListener('click', (e) => {
+  if (e.target.closest('#changeSystemName')) {
+    e.preventDefault();
+    activateTab('panel-config');
+    els.systemName.focus();
+    els.systemName.select();
+  }
+});
+// Keep the note in sync as the field is edited (so it reflects what will register).
+els.systemName.addEventListener('input', () => {
+  const name = els.systemName.value.trim() || els.systemName.placeholder || 'Arete Widget';
+  els.systemNameNote.innerHTML = `nodes register under “${esc(name)}” · <a href="#" id="changeSystemName">change</a>`;
+});
 
 els.form.addEventListener('submit', (e) => { e.preventDefault(); doConnect(false); });
 els.disconnectBtn.addEventListener('click', () => window.arete.disconnect());
@@ -643,7 +671,7 @@ async function init() {
   const light = d.theme === 'light';
   document.body.classList.toggle('light', light);
   els.themeLight.checked = light;
-  els.systemNameNote.textContent = `nodes register under “${d.systemName}”`;
+  els.systemNameNote.innerHTML = `nodes register under “${esc(d.systemName)}” · <a href="#" id="changeSystemName">change</a>`;
   els.libraryUrl.value = d.libraryUrl;
   els.libraryUrl.placeholder = d.libraryUrlDefault;
   updateLibraryNote(d.userWidgetsDir);

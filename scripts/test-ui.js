@@ -189,7 +189,26 @@ assert('update keeps context id', window.__updated?.contextId === 'Ctx0000000000
 assert('update carries new name', window.__updated?.name === 'Kitchen Bulb');
 assert('dialog closed after save', $('#dlgOverlay').hidden);
 
+// 12) remove flow: ⋯ → Remove… → confirm view → Remove
+$('[data-menu="instA"]').click();
+$('[data-remove="instA"]').click();
+assert('confirm view shown', !!$('.tile-menu.confirm'));
+assert('confirm names the widget', ($('.tile-menu.confirm')?.textContent || '').includes('My Bulb'));
+assert('confirm has cancel + remove', !!$('[data-remove-cancel]') && !!$('[data-remove-yes]'));
+$('[data-remove-cancel]').click();
+assert('cancel returns to menu', !$('.tile-menu.confirm') && !!$('[data-remove="instA"]'));
+$('[data-remove="instA"]').click();
+$('[data-remove-yes="instA"]').click();
+assert('widgetRemove called', window.__removed === 'instA');
+
+// 13) the "change" system-name link jumps to Config
+window.__removed = null;
+const chg = $('#changeSystemName');
+assert('change link present', !!chg);
+chg.click();
+assert('change link opens Config', !$('#panel-config') || document.querySelector('#tab-config').classList.contains('active'));
+
 if (window.__errors.length) failures.push('uncaught errors: ' + window.__errors);
 if (failures.length) { console.error('\n❌ FAIL —', failures.join('; ')); process.exit(1); }
-console.log('\n✅ PASS — tile grid + add/edit dialog work end-to-end in DOM.');
+console.log('\n✅ PASS — tile grid + add/edit dialog + remove/confirm work end-to-end in DOM.');
 process.exit(0);
