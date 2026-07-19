@@ -4,6 +4,10 @@
 #
 # npm ci runs the postinstall SDK patches, so CI builds carry the same
 # arete-sdk fixes (off-Pi system-id, ws keepalive, clean-close retry) as dev.
+#
+# The two mac architectures build in SEPARATE jobs: both DMGs mount a volume
+# with the same name, and back-to-back mounts in one job race hdiutil detach
+# (a recurring GitHub macOS runner flake). One arch per runner = no collision.
 name: Build & Release
 
 on:
@@ -18,7 +22,9 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            args: --mac
+            args: --mac --arm64
+          - os: macos-latest
+            args: --mac --x64
           - os: windows-latest
             args: --win
           - os: ubuntu-latest
@@ -28,9 +34,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      # macOS runners: Spotlight indexes the mounted DMG volume and keeps it
-      # busy, making electron-builder's `hdiutil detach` fail (a well-known
-      # runner flake). Disable indexing before building.
+      # Spotlight indexes the mounted DMG volume and keeps it busy, making
+      # electron-builder's `hdiutil detach` fail. Disable indexing up front.
       - name: Disable Spotlight indexing (mac DMG detach flake)
         if: runner.os == 'macOS'
         run: sudo mdutil -a -i off || true
@@ -39,7 +44,14 @@ jobs:
           node-version: 22
       - run: npm ci
       - name: Build and publish installers
-        run: npx electron-builder ${{ matrix.args }} --publish always
+        shell: bash
+        run: |
+          if npx electron-builder ${{ matrix.args }} --publish always; then exit 0; fi
+          echo "First attempt failed — force-detaching stale DMG volumes and retrying once..."
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            for v in /Volumes/Arete*; do sudo hdiutil detach -force "$v" 2>/dev/null || true; done
+          fi
+          npx electron-builder ${{ matrix.args }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Builds are unsigned (same as local dev builds) — stop electron-builder
