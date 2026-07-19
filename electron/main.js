@@ -300,6 +300,14 @@ app.whenReady().then(async () => {
   installSystemIdPatch(seed);
   const env = readEnvFile();
 
+  // Clean native About panel (macOS menu → About Arete Widget; also the
+  // Help → About on other platforms) with the real release version.
+  app.setAboutPanelOptions({
+    applicationName: 'Arete Widget',
+    applicationVersion: app.getVersion(),
+    credits: 'Virtual widgets on a CNS/CP realm · project-arete',
+  });
+
   // User widget dir (survives app updates) + the definitions the app ships.
   const userWidgetsDir = path.join(app.getPath('userData'), 'widgets');
   try {
@@ -342,6 +350,7 @@ app.whenReady().then(async () => {
       userWidgetsDir,
       libraryUrl: effectiveLibraryUrl(),
       libraryUrlDefault: DEFAULT_LIBRARY_URL,
+      appVersion: app.getVersion(), // from package.json — the release version
     };
   });
 

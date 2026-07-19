@@ -42,7 +42,7 @@ const DEFS = [
 ];
 const subs = { keys: [], log: [], status: [], wdefs: [], winst: [], wstate: [] };
 window.arete = {
-  getDefaults: async () => ({ protocol: 'wss:', host: 'h', port: 443, username: 'u', password: '', allowSelfSigned: true, rememberPassword: false, autoConnect: false, canRememberPassword: true, systemName: "Arete Widget", userWidgetsDir: '/tmp/w', libraryUrl: '', libraryUrlDefault: 'https://example.test' }),
+  getDefaults: async () => ({ protocol: 'wss:', host: 'h', port: 443, username: 'u', password: '', allowSelfSigned: true, rememberPassword: false, autoConnect: false, canRememberPassword: true, systemName: "Arete Widget", userWidgetsDir: '/tmp/w', libraryUrl: '', libraryUrlDefault: 'https://example.test', appVersion: '0.1.2' }),
   connect: async () => ({}),
   disconnect: async () => ({}),
   getStatus: async () => ({ state: 'connected', isOpen: true, version: '1', stats: {}, identity: { system: 'S9' }, lastError: null }),
@@ -81,6 +81,9 @@ const fire = (el, type) => el.dispatchEvent(new window.Event(type, { bubbles: tr
 const report = (label, val) => console.log(label.padEnd(46), val);
 const failures = [];
 const assert = (label, ok) => { report(label + ':', ok); if (!ok) failures.push(label); };
+
+// 0) the app (release) version is surfaced in the header
+assert('app version shown in header', $('#appVersion')?.textContent === 'v0.1.2');
 
 // 1) the home page is a tile grid with a + tile
 assert('plus tile rendered', !!$('[data-plus]'));

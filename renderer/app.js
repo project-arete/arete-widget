@@ -7,6 +7,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const els = {
   statusDot: $('statusDot'),
   statePill: $('statePill'),
+  appVersion: $('appVersion'),
   realmInd: $('realmInd'),
   realmHost: $('realmHost'),
   themeLight: $('themeLight'),
@@ -675,6 +676,7 @@ async function init() {
   const light = d.theme === 'light';
   document.body.classList.toggle('light', light);
   els.themeLight.checked = light;
+  if (d.appVersion) els.appVersion.textContent = `v${d.appVersion}`;
   els.systemNameNote.innerHTML = `nodes register under “${esc(d.systemName)}” · <a href="#" id="changeSystemName">change</a>`;
   els.libraryUrl.value = d.libraryUrl;
   els.libraryUrl.placeholder = d.libraryUrlDefault;
