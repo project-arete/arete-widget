@@ -31,6 +31,10 @@ const KEYS = {
   'cns/S2/nodes/N2/name': 'bulb-node',
   'cns/S2/nodes/N2/contexts/Ctx000000000000000001/name': 'light1',
   'cns/S2/nodes/N2/contexts/Ctx000000000000000002/name': 'Office 41-B',
+  // capability declarations: Ctx..01 holds a padi.light PROVIDER (a match for
+  // the bulb widget = consumer); Ctx..02 holds only another CONSUMER (no match).
+  'cns/S1/nodes/N1/contexts/Ctx000000000000000001/provider/padi.light/version': '1',
+  'cns/S2/nodes/N2/contexts/Ctx000000000000000002/consumer/padi.light/version': '1',
 };
 const DEFS = [
   { id: 'bulb', file: 'widgets/bulb.yaml', ok: true, errors: [], title: 'Virtual Bulb', description: 'A light.', capabilities: [{ profile: 'padi.light', role: 'consumer', title: 'x' }], hasBehavior: true },
@@ -83,7 +87,9 @@ const joinRadio = $('#af-ctx-join');
 report('join radio exists:', !!joinRadio);
 report('join radio DISABLED:', joinRadio?.disabled);
 const sel = $('#af-ctxsel');
-report('select option count:', sel?.options.length);
+report('select option count (only complementary):', sel?.options.length);
+report('matched ctx is the provider one:', sel?.options[0]?.value === 'Ctx000000000000000001');
+report('option mentions the partner:', (sel?.options[0]?.textContent || '').includes('1 padi.light provider'));
 
 // 2) click "Join existing"
 joinRadio.checked = true;
@@ -91,7 +97,7 @@ $('#af-ctx-new').checked = false;
 fire(joinRadio, 'change');
 report('after join click — select row visible:', !$('#af-ctxsel-row').hidden);
 report('after join click — name row hidden:', $('#af-ctxname-row').hidden);
-report('join info populated:', ($('#af-ctxinfo-join')?.textContent || '').includes('matching space'));
+report('join info populated:', ($('#af-ctxinfo-join')?.textContent || '').includes('already holds'));
 
 // 3) pick the second option, then simulate live keys pushes
 if (sel.options.length > 1) {

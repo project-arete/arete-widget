@@ -87,24 +87,55 @@ function renderStatus(st) {
 }
 
 // ---- Realm context picker (broker matches on context ID) ----
+// Parse contexts with their names AND their declared capabilities, so the
+// Join picker can show only contexts that hold a COMPLEMENTARY role for the
+// widget's CP(s) — the only contexts the broker could actually bind in.
 function realmContexts() {
   const m = {};
-  const re = /^cns\/([^/]+)\/nodes\/([^/]+)\/contexts\/([^/]+)\/name$/;
+  const nameRe = /^cns\/([^/]+)\/nodes\/([^/]+)\/contexts\/([^/]+)\/name$/;
+  const capRe = /^cns\/([^/]+)\/nodes\/([^/]+)\/contexts\/([^/]+)\/(provider|consumer)\/([^/]+)\//;
+  const decls = {}; // ctxId -> Set("sys|node|role|profile") — distinct declarations
   for (const k in keys) {
-    const mm = k.match(re);
-    if (!mm) continue;
-    const ctx = mm[3];
-    const name = keys[k];
-    const e = m[ctx] || (m[ctx] = { names: {}, count: 0 });
-    e.names[name] = (e.names[name] || 0) + 1;
-    e.count++;
+    let mm = k.match(nameRe);
+    if (mm) {
+      const e = m[mm[3]] || (m[mm[3]] = { names: {}, count: 0 });
+      e.names[keys[k]] = (e.names[keys[k]] || 0) + 1;
+      e.count++;
+      continue;
+    }
+    mm = k.match(capRe);
+    if (mm) (decls[mm[3]] || (decls[mm[3]] = new Set())).add(`${mm[1]}|${mm[2]}|${mm[4]}|${mm[5]}`);
   }
   return Object.entries(m)
     .map(([id, e]) => {
       const names = Object.entries(e.names).sort((a, b) => b[1] - a[1]);
-      return { id, name: names[0][0], also: names.slice(1).map(([n]) => n), declarations: e.count };
+      const roles = {}; // "role|profile" -> distinct declaration count
+      for (const d of decls[id] || []) {
+        const [, , role, profile] = d.split('|');
+        roles[`${role}|${profile}`] = (roles[`${role}|${profile}`] || 0) + 1;
+      }
+      return { id, name: names[0][0], also: names.slice(1).map(([n]) => n), declarations: e.count, roles };
     })
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+// Only the contexts where the broker could bind THIS widget: at least one
+// declaration of the opposite role for one of the widget's profiles.
+function contextsMatching(d) {
+  const wanted = ((d && d.capabilities) || []).map((c) => ({
+    profile: c.profile,
+    partner: c.role === 'provider' ? 'consumer' : 'provider',
+  }));
+  return realmContexts()
+    .map((c) => {
+      const partners = [];
+      for (const w of wanted) {
+        const n = c.roles[`${w.partner}|${w.profile}`] || 0;
+        if (n) partners.push(`${n} ${w.profile} ${w.partner}${n === 1 ? '' : 's'}`);
+      }
+      return { ...c, partnersText: partners.join(', ') };
+    })
+    .filter((c) => c.partnersText);
 }
 
 // ---- Widget library ----
@@ -147,15 +178,24 @@ function refreshCtxOptions() {
   const sel = els.defList.querySelector('#af-ctxsel');
   if (!sel) return;
   const cur = sel.value;
-  const html = realmContexts()
-    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${c.declarations} declaration${c.declarations === 1 ? '' : 's'})</option>`)
+  const d = defs.find((x) => x.id === openAddForm);
+  const html = contextsMatching(d)
+    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${esc(c.partnersText)})</option>`)
     .join('');
   if (sel.dataset.rendered === html) return; // nothing changed — don't touch it
   sel.innerHTML = html;
   sel.dataset.rendered = html;
   if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
   const joinRadio = els.defList.querySelector('#af-ctx-join');
-  if (joinRadio && sel.options.length) joinRadio.disabled = false;
+  if (joinRadio) {
+    joinRadio.disabled = sel.options.length === 0;
+    if (joinRadio.disabled && joinRadio.checked) {
+      // The last matching context vanished mid-form — fall back to New.
+      joinRadio.checked = false;
+      els.defList.querySelector('#af-ctx-new').checked = true;
+      syncAddFormRows();
+    }
+  }
   const hint = els.defList.querySelector('#af-join-hint');
   if (hint) hint.hidden = sel.options.length > 0;
   updateJoinInfo(); // the described context may have gained declarations/names
@@ -244,9 +284,9 @@ function newCtxId() {
 }
 
 function renderAddForm(d) {
-  const ctxs = realmContexts();
+  const ctxs = contextsMatching(d);
   const opts = ctxs
-    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${c.declarations} declaration${c.declarations === 1 ? '' : 's'})</option>`)
+    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${esc(c.partnersText)})</option>`)
     .join('');
   const joinDisabled = ctxs.length ? '' : 'disabled';
   return `<div class="add-form" data-form="${esc(d.id)}">
@@ -255,7 +295,7 @@ function renderAddForm(d) {
       <label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-new" checked /> <span>New context</span></label>
       <label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-join" ${joinDisabled} /> <span>Join existing</span></label>
     </div>
-    <div id="af-join-hint" class="ctx-info" ${joinDisabled ? '' : 'hidden'}>No contexts are visible in the realm yet${connected ? '' : ' (not connected)'} — nothing to join.</div>
+    <div id="af-join-hint" class="ctx-info" ${joinDisabled ? '' : 'hidden'}>No context in the realm has a matching partner for this widget${connected ? '' : ' (not connected)'} — create a new context and let a partner join you instead.</div>
     <label id="af-ctxname-row">Context name <input type="text" id="af-ctxname" value="${esc(d.title)}" autocomplete="off" /></label>
     <div id="af-ctxinfo-new" class="ctx-info">Creates a new matching space with id <span class="mono">${esc(pendingCtxId || '')}</span>.
       Nothing else is in it yet — the widget will show <em>awaiting broker</em> until something joins this context.</div>
@@ -288,12 +328,13 @@ function updateJoinInfo() {
   const sel = els.defList.querySelector('#af-ctxsel');
   const info = els.defList.querySelector('#af-ctxinfo-join');
   if (!sel || !info) return;
-  const c = realmContexts().find((x) => x.id === sel.value);
+  const d = defs.find((x) => x.id === openAddForm);
+  const c = contextsMatching(d).find((x) => x.id === sel.value);
   if (!c) { info.textContent = ''; return; }
   const also = c.also.length ? ` · also known as: ${c.also.map(esc).join(', ')}` : '';
   info.innerHTML = `Joins <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id)}</span> —
-    ${c.declarations} declaration${c.declarations === 1 ? '' : 's'} already in this matching space; the broker will
-    try to bind your widget to complementary capabilities there. Your system adopts the name “${esc(c.name)}”.${also}`;
+    already holds ${esc(c.partnersText)}, so the broker should bind your widget on arrival.
+    Your system adopts the name “${esc(c.name)}”.${also}`;
 }
 
 async function createFromForm() {
