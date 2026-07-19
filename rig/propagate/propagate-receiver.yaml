@@ -1,10 +1,10 @@
 # Propagate Receiver — consumer role of cp:padi.test.propagate.
 # Sees ONLY the propagated writes; auto-echoes ping to prove the round trip;
-# keeps its own non-propagated private notes.
+# keeps its own non-propagated notes (connection-external by contract).
 # NOTE: invalid until padi.test.propagate is registered at cp.padi.io (by design).
 widget: propagate-receiver
 title: Propagate Receiver
-description: Consumer side of the propagate test rig - shows what arrives from the sender (only propagated properties can), echoes ping automatically, and keeps private notes of its own.
+description: Consumer side of the propagate test rig - shows what arrives from the sender (only propagated properties can), echoes ping automatically, and keeps notes of its own that are not part of the connection contract.
 icon: "📥"
 color: "#4c8bf5"
 

@@ -12,7 +12,7 @@ never see it.
 |---|---|
 | `cp-padi.test.propagate.json` | Draft definition of **cp:padi.test.propagate**, ready to register at [cp.padi.io](https://cp.padi.io) (registry JSON shape; flags encoded by key presence) |
 | `propagate-sender.yaml` | Provider widget: posts `bulletin` (propagated), keeps `draft` (not), bumps `ping` |
-| `propagate-receiver.yaml` | Consumer widget: shows what arrives, auto-replies `ping` → `echo`, keeps private `notes` |
+| `propagate-receiver.yaml` | Consumer widget: shows what arrives, auto-replies `ping` → `echo`, keeps its own `notes` |
 | `../../scripts/test-propagate.js` | Headless experiment: writes both flavors on both sides, then inspects the raw key namespace and reports where every value did and did not land |
 
 The CP's six properties differ **only** in their flags. Names carry the
@@ -26,7 +26,7 @@ for development/test profiles):
 | `draft` | provider | ✘ | stays on the provider's desk — never leaves |
 | `ping` | provider | ✔ | counter consumers auto-reply to |
 | `feedback` | consumer | ✔ | sent back — the provider sees it |
-| `notes` | consumer | ✘ | private — never leave the consumer |
+| `notes` | consumer | ✘ | connection-external — never leave the consumer |
 | `echo` | consumer | ✔ | the reply to ping — proves the round trip |
 
 ## Running the demo
