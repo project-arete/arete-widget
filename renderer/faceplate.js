@@ -35,16 +35,37 @@ function peersLine() {
 
 // The peer strip: appears only at 2+ connections. "All" aggregates; a peer
 // chip filters the read side to that single connection.
+// When the strip appears/disappears mid-session, the WINDOW grows/shrinks by
+// the strip's height so the content area keeps its size (no scrollbars).
+let stripShown = false;
+let stripEverRendered = false; // first render sets the baseline — no resize
 function renderStrip() {
   const strip = $('fpStrip');
   if (peers.length < 2) {
-    strip.hidden = true;
+    if (stripShown && stripEverRendered) {
+      const h = strip.offsetHeight;
+      strip.hidden = true;
+      if (h && window.faceplate.adjustHeight) window.faceplate.adjustHeight(-h);
+    } else {
+      strip.hidden = true;
+    }
+    stripShown = false;
+    stripEverRendered = true;
     if (selConn !== 'all') { selConn = 'all'; }
     return;
   }
   if (selConn !== 'all' && !peers.some((p) => p.connId === selConn)) selConn = 'all';
+  const wasShown = stripShown;
   strip.hidden = false;
   strip.innerHTML = '';
+  stripShown = true;
+  if (!wasShown && stripEverRendered && window.faceplate.adjustHeight) {
+    requestAnimationFrame(() => {
+      const h = strip.offsetHeight;
+      if (h) window.faceplate.adjustHeight(h);
+    });
+  }
+  stripEverRendered = true;
   const mk = (id, label, title) => {
     const b = document.createElement('button');
     b.type = 'button';
@@ -95,6 +116,12 @@ function wrap(prim, child) {
   const box = el('div', 'prim');
   box.appendChild(child);
   if (prim.caption) box.appendChild(el('div', 'caption', prim.caption));
+  // Own-written property the CP does not propagate: honest "local" marker.
+  if (prim.bind && fp.localOnly && fp.localOnly.includes(prim.bind)) {
+    const lc = el('span', 'chip-local', 'local');
+    lc.title = 'no propagate flag in the CP — connections never carry this value; peers cannot see it';
+    box.appendChild(lc);
+  }
   return box;
 }
 

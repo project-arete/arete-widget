@@ -217,7 +217,9 @@ function openFaceplate(instanceId) {
   const items = model ? model.view.length : 4;
   const perCol = split ? Math.ceil(items / 2) : items;
   const defaultWidth = split ? 560 : 300;
-  const defaultHeight = Math.max(300, Math.min(760, 170 + perCol * 58));
+  // If the widget opens already multi-connected, budget for the peer strip.
+  const stripH = (inst.peers || []).length >= 2 ? 36 : 0;
+  const defaultHeight = Math.max(300, Math.min(760, 170 + stripH + perCol * 58));
   const bounds = placeFaceplate(instanceId, defaultWidth, defaultHeight);
   const saved = readFpBounds()[instanceId] || {};
   const win = new BrowserWindow({
@@ -413,6 +415,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('widget:action', (_evt, { id, property, value }) =>
     manager.putProperty(id, property, value)
   );
+  // The faceplate asks to grow/shrink (peer strip appearing/disappearing) so
+  // its content area keeps a constant size instead of sprouting scrollbars.
+  ipcMain.handle('widget:fp-adjust-height', (_evt, { id, delta }) => {
+    const fp = faceplates.get(id);
+    if (!fp || fp.isDestroyed() || !Number.isFinite(delta)) return;
+    const b = fp.getBounds();
+    fp.setBounds({ ...b, height: Math.max(260, b.height + Math.round(delta)) });
+  });
   // Pin a faceplate above other windows; the choice persists per instance.
   ipcMain.handle('widget:fp-pin', (_evt, { id, pinned }) => {
     const fp = faceplates.get(id);
@@ -437,6 +447,11 @@ app.whenReady().then(async () => {
       color: model ? model.color || '' : '',
       view: model ? model.view : [],
       writable: model ? model.writable : [],
+      // Own-written props the CP does NOT propagate: visible here, but
+      // connections never carry them — the faceplate marks these "local".
+      localOnly: model
+        ? model.writable.filter((p) => model.resolve[p] && !model.resolve[p].propagate)
+        : [],
       hasRules: !!(model && model.behavior.rules.length),
       state: inst.state,
       connections: inst.connections,

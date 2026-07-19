@@ -35,10 +35,15 @@ const PRIMITIVES = ['lamp', 'toggle', 'value', 'label', 'field', 'meter', 'optio
 
 /**
  * Extract the property map from a registry profile JSON (latest version).
- * A property with a "server" key belongs to the SERVER (provider) side —
- * i.e. the provider writes it; otherwise the client (consumer) writes it.
+ * The registry encodes per-property flags by KEY PRESENCE (value is null):
+ *  - "server" present  -> the SERVER (provider) side writes this property;
+ *    absent -> the client (consumer) writes it.
+ *  - "propagate" present -> writes to this property are propagated to all
+ *    active connections; absent -> the value stays on the node's capability
+ *    and NEVER reaches connections (peers cannot see it).
+ *  - "required" present -> the property is required.
  * @param {object} profileJson raw JSON from cp.padi.io/profiles/<name>
- * @returns {{title:string, props:Object<string,{writer:'server'|'client', desc:string}>}|null}
+ * @returns {{title:string, props:Object<string,{writer:'server'|'client', desc:string, propagate:boolean, required:boolean}>}|null}
  */
 export function parseProfile(profileJson) {
   if (!profileJson || !Array.isArray(profileJson.versions) || !profileJson.versions.length) {
@@ -51,6 +56,8 @@ export function parseProfile(profileJson) {
     props[pr.name] = {
       writer: 'server' in pr ? 'server' : 'client',
       desc: pr.description || '',
+      propagate: 'propagate' in pr,
+      required: 'required' in pr,
     };
   }
   return { title: profileJson.title || '', props };
@@ -127,11 +134,20 @@ export function validateDefinition(raw, profileJsons) {
   }
 
   // ---- bind resolution: bare property names must be unambiguous ----
-  const resolve = {}; // prop -> {profile, role, writer, desc} | 'AMBIGUOUS'
+  const resolve = {}; // prop -> {profile, role, writer, propagate, required, desc} | 'AMBIGUOUS'
   for (const cap of capabilities) {
     for (const p in cap.props) {
       if (resolve[p]) resolve[p] = 'AMBIGUOUS';
-      else resolve[p] = { profile: cap.profile, role: cap.role, writer: cap.props[p].writer, desc: cap.props[p].desc };
+      else {
+        resolve[p] = {
+          profile: cap.profile,
+          role: cap.role,
+          writer: cap.props[p].writer,
+          propagate: !!cap.props[p].propagate,
+          required: !!cap.props[p].required,
+          desc: cap.props[p].desc,
+        };
+      }
     }
   }
   const resolveBind = (prop, where) => {
@@ -149,6 +165,19 @@ export function validateDefinition(raw, profileJsons) {
     const r = resolveBind(prop, where);
     if (r && !roleWrites(r.role, { writer: r.writer })) {
       e(`${where}: "${prop}" is written by the ${r.writer === 'server' ? 'provider' : 'consumer'} side; this widget's ${r.role} role may not write it.`);
+      return null;
+    }
+    return r;
+  };
+  // Reading a PEER-written property only works if the CP propagates it —
+  // otherwise the value never reaches this widget's connections, so a display
+  // could never show it and a rule could never fire. Refuse such binds.
+  const assertReadable = (prop, where) => {
+    const r = resolveBind(prop, where);
+    if (!r) return null;
+    const own = roleWrites(r.role, { writer: r.writer });
+    if (!own && !r.propagate) {
+      e(`${where}: "${prop}" is written by the peer side but the CP does not set its propagate flag — the value never reaches this widget's connections, so it can never appear here.`);
       return null;
     }
     return r;
@@ -172,14 +201,14 @@ export function validateDefinition(raw, profileJsons) {
     }
     if (type === 'label') {
       if (typeof v.text === 'string') prim.text = v.text;
-      else if (typeof v.bind === 'string' && resolveBind(v.bind, where)) prim.bind = v.bind;
+      else if (typeof v.bind === 'string' && assertReadable(v.bind, where)) prim.bind = v.bind;
       else { e(`${where}: label needs \`text:\` or a valid \`bind:\`.`); return; }
     } else {
       if (typeof v.bind !== 'string' || !v.bind.trim()) { e(`${where}: ${type} requires \`bind:\`.`); return; }
       prim.bind = v.bind.trim();
       if (type === 'toggle' || type === 'field') {
         if (!assertWritable(prim.bind, where)) return;
-      } else if (!resolveBind(prim.bind, where)) return;
+      } else if (!assertReadable(prim.bind, where)) return;
     }
     if (type === 'lamp' || type === 'toggle') {
       prim.on = v.on != null ? String(v.on) : '1';
@@ -224,7 +253,7 @@ export function validateDefinition(raw, profileJsons) {
         const set = r && typeof r.set === 'string' ? r.set.trim() : '';
         if (!when || !set) { e(`${where}: needs \`when:\` and \`set:\`.`); return; }
         if (when === set) { e(`${where}: \`when\` and \`set\` must differ.`); return; }
-        if (!resolveBind(when, where)) return;
+        if (!assertReadable(when, where)) return;
         if (!assertWritable(set, where)) return;
         const rule = { when, set };
         if (r.map != null) {

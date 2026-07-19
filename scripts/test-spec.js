@@ -21,10 +21,11 @@ const PADI_LIGHT = {
   title: 'Simple light control profile',
   versions: [{
     properties: [
-      { name: 'sOut', description: 'The output state of the controller 0=off, 1=on', server: null },
-      { name: 'sLabel', description: 'Controller label', server: null },
-      { name: 'cState', description: 'State of the light 0=off, 1=on' },
-      { name: 'cLabel', description: 'Label of the Light' },
+      // registry convention: flags are encoded by KEY PRESENCE (value null)
+      { name: 'sOut', description: 'The output state of the controller 0=off, 1=on', server: null, propagate: null },
+      { name: 'sLabel', description: 'Controller label', server: null, propagate: null },
+      { name: 'cState', description: 'State of the light 0=off, 1=on', propagate: null },
+      { name: 'cLabel', description: 'Label of the Light', propagate: null },
     ],
   }],
 };
@@ -38,7 +39,54 @@ const ok = (name) => console.log(`  ✔ ${name}`) || n++;
   const p = parseProfile(PADI_LIGHT);
   assert.equal(p.props.sOut.writer, 'server');
   assert.equal(p.props.cState.writer, 'client');
-  ok('parseProfile: server/client direction from the "server" key');
+  assert.equal(p.props.sOut.propagate, true);
+  ok('parseProfile: server/client direction + propagate from key presence');
+}
+
+// ---- the propagate flag ----
+{
+  // A profile with non-propagated properties on both sides.
+  const P = {
+    name: 'x.test',
+    versions: [{
+      properties: [
+        { name: 'shared', description: '', server: null, propagate: null },
+        { name: 'hidden', description: '', server: null },   // server-written, NOT propagated
+        { name: 'note', description: '' },                    // client-written, NOT propagated
+      ],
+    }],
+  };
+  const PR = { 'x.test': P };
+
+  // Reading a peer-written non-propagated property can never work -> refused.
+  let res = validateDefinition({
+    widget: 'a', title: 'A',
+    capabilities: [{ profile: 'x.test', role: 'consumer' }],
+    view: [{ type: 'value', bind: 'hidden' }],
+  }, PR);
+  assert.ok(!res.ok && res.errors.some((e) => e.includes('propagate')));
+  ok('reading a peer-written non-propagated property is refused');
+
+  // A rule listening to it could never fire -> refused.
+  res = validateDefinition({
+    widget: 'b', title: 'B',
+    capabilities: [{ profile: 'x.test', role: 'consumer' }],
+    view: [{ type: 'value', bind: 'shared' }],
+    behavior: { rules: [{ when: 'hidden', set: 'note' }] },
+  }, PR);
+  assert.ok(!res.ok && res.errors.some((e) => e.includes('propagate')));
+  ok('rule when: on a non-propagated peer property is refused');
+
+  // Your OWN non-propagated property stays writable and bindable (local).
+  res = validateDefinition({
+    widget: 'c', title: 'C',
+    capabilities: [{ profile: 'x.test', role: 'consumer' }],
+    view: [{ type: 'field', bind: 'note' }, { type: 'value', bind: 'shared' }],
+  }, PR);
+  assert.ok(res.ok);
+  assert.equal(res.model.resolve.note.propagate, false);
+  assert.equal(res.model.resolve.shared.propagate, true);
+  ok('own non-propagated property remains writable/bindable (marked local)');
 }
 
 // ---- the shipped widgets validate ----
