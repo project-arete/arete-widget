@@ -28,6 +28,12 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      # macOS runners: Spotlight indexes the mounted DMG volume and keeps it
+      # busy, making electron-builder's `hdiutil detach` fail (a well-known
+      # runner flake). Disable indexing before building.
+      - name: Disable Spotlight indexing (mac DMG detach flake)
+        if: runner.os == 'macOS'
+        run: sudo mdutil -a -i off || true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
