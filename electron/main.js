@@ -92,9 +92,23 @@ async function fetchProfile(name) {
 // Windows
 // ---------------------------------------------------------------------------
 function createMainWindow() {
+  // Restore the last position/size (and maximized state) from settings,
+  // clamped into a live display's work area.
+  const saved = settings.readSettings().mainWindowBounds;
+  let bounds = { width: 980, height: 720 };
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    const wa = screen.getDisplayMatching(saved).workArea;
+    const w = Math.min(saved.width || 980, wa.width);
+    const h = Math.min(saved.height || 720, wa.height);
+    bounds = {
+      x: Math.min(Math.max(saved.x, wa.x), wa.x + wa.width - w),
+      y: Math.min(Math.max(saved.y, wa.y), wa.y + wa.height - h),
+      width: w,
+      height: h,
+    };
+  }
   mainWindow = new BrowserWindow({
-    width: 980,
-    height: 720,
+    ...bounds,
     minWidth: 760,
     minHeight: 540,
     title: 'Arete Widget',
@@ -105,7 +119,32 @@ function createMainWindow() {
       sandbox: false,
     },
   });
+  if (saved && saved.maximized) mainWindow.maximize();
   mainWindow.loadFile(path.join(ROOT, 'renderer', 'index.html'));
+
+  // Persist bounds on move/resize (debounced; final save on close). While
+  // maximized, keep the pre-maximize bounds and just flag the state, so
+  // un-maximizing after a restart returns to the right place.
+  let saveTimer = null;
+  const saveBounds = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const prev = settings.readSettings().mainWindowBounds || {};
+    settings.writeSettings({
+      mainWindowBounds: mainWindow.isMaximized()
+        ? { ...prev, maximized: true }
+        : { ...mainWindow.getBounds(), maximized: false },
+    });
+  };
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveBounds, 400);
+  };
+  mainWindow.on('move', scheduleSave);
+  mainWindow.on('resize', scheduleSave);
+  mainWindow.on('close', () => {
+    clearTimeout(saveTimer);
+    saveBounds();
+  });
   mainWindow.on('closed', () => (mainWindow = null));
 }
 
