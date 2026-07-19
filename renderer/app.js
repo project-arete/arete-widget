@@ -149,6 +149,7 @@ function contextsMatching(d, excludeCtxId) {
 // =========================================================================
 let dlg = null;
 let pendingCtxId = null; // context id minted for "New context" — survives re-renders
+let lastFilter = '';     // picker filter, remembered across dialog opens (this app session only)
 
 function newCtxId() {
   const B = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -158,7 +159,9 @@ function newCtxId() {
 }
 
 function openCreateDialog() {
-  dlg = { mode: 'create', step: 1, defId: null, instId: null, filter: '' };
+  // Seed with the filter from the previous add, so a run of similar widgets
+  // doesn't make you retype "light" each time (reset when the app restarts).
+  dlg = { mode: 'create', step: 1, defId: null, instId: null, filter: lastFilter };
   pendingCtxId = null;
   renderDialog();
   const search = els.dlgBody.querySelector('#dlgSearch');
@@ -452,6 +455,7 @@ els.dlgBody.addEventListener('keydown', (e) => {
 els.dlgBody.addEventListener('input', (e) => {
   if (e.target.id === 'dlgSearch' && dlg) {
     dlg.filter = e.target.value;
+    lastFilter = e.target.value; // remember for the next add this session
     renderPickList(); // ONLY the list — the input keeps focus and its value
   }
 });

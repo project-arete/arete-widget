@@ -201,6 +201,18 @@ $('[data-remove="instA"]').click();
 $('[data-remove-yes="instA"]').click();
 assert('widgetRemove called', window.__removed === 'instA');
 
+// 12b) the picker filter is remembered across dialog opens (this session)
+$('[data-plus]').click();
+$('#dlgSearch').value = 'switch';
+fire($('#dlgSearch'), 'input');
+$('#dlgClose').click();
+$('[data-plus]').click();
+assert('filter retained on reopen', $('#dlgSearch').value === 'switch');
+assert('retained filter pre-applies', $$('#dlgPickList .pick-row').length === 1);
+$('#dlgSearch').value = '';
+fire($('#dlgSearch'), 'input');
+$('#dlgClose').click();
+
 // 13) the "change" system-name link jumps to Config
 window.__removed = null;
 const chg = $('#changeSystemName');
