@@ -19,6 +19,12 @@ changeable in Config). Every widget you add becomes a Node under that System,
 in a context of your choice — join an existing context and the realm's broker
 connects your widget to whatever else lives there.
 
+Widgets come from three places, in ascending precedence: a handful **bundled**
+with the app (offline fallback), the **[online widget library](https://github.com/project-arete/widget-library)**
+(fetched on Reload from a published catalog and cached for offline use — new
+widgets reach every install with no app update), and your **local widget
+folder** for personal or experimental definitions.
+
 ## Architecture (built for macOS / Windows / Linux, mobile-ready core)
 
 - `core/` — **portable** widget engine, no Electron/Node APIs:

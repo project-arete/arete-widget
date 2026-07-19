@@ -38,11 +38,13 @@ const DEFS = [
 ];
 const subs = { keys: [], log: [], status: [], wdefs: [], winst: [], wstate: [] };
 window.arete = {
-  getDefaults: async () => ({ protocol: 'wss:', host: 'h', port: 443, username: 'u', password: '', allowSelfSigned: true, rememberPassword: false, autoConnect: false, canRememberPassword: true, systemName: "Arete Widget", userWidgetsDir: '/tmp/w' }),
+  getDefaults: async () => ({ protocol: 'wss:', host: 'h', port: 443, username: 'u', password: '', allowSelfSigned: true, rememberPassword: false, autoConnect: false, canRememberPassword: true, systemName: "Arete Widget", userWidgetsDir: '/tmp/w', libraryUrl: '', libraryUrlDefault: 'https://example.test' }),
   connect: async () => ({}),
   disconnect: async () => ({}),
   getStatus: async () => ({ state: 'connected', isOpen: true, version: '1', stats: {}, identity: { system: 'S9' }, lastError: null }),
   setAutoConnect: async () => ({}),
+  saveSettings: async () => ({}),
+  libraryInfo: async () => ({ url: '', updatedAt: null, count: 0 }),
   openExternal: async () => {},
   getKeys: async () => KEYS,
   getProfile: async () => null,

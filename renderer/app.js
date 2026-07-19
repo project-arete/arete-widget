@@ -22,6 +22,7 @@ const els = {
   connectBtn: $('connectBtn'), disconnectBtn: $('disconnectBtn'),
   clearLogBtn: $('clearLogBtn'), cpLink: $('cpLink'),
   defList: $('defList'), reloadDefsBtn: $('reloadDefsBtn'), userDirNote: $('userDirNote'),
+  libraryUrl: $('libraryUrl'),
   instanceList: $('instanceList'), instancesEmpty: $('instancesEmpty'),
   systemNameNote: $('systemNameNote'),
 };
@@ -166,9 +167,12 @@ function renderDefs() {
     const caps = d.capabilities
       .map((c) => `<span class="cap-chip ${c.role}">${esc(c.role)} of ${esc(c.profile)}</span>`)
       .join(' ');
-    const badge = d.ok
-      ? (d.hasBehavior ? '<span class="chip auto" title="has auto-actualize rules">auto</span>' : '')
-      : '<span class="chip bad" title="' + esc(d.errors.join(' ')) + '">invalid</span>';
+    const src = d.source
+      ? `<span class="chip src ${esc(d.source)}" title="${d.source === 'library' ? 'from the online widget library' : d.source === 'local' ? 'from your local widget folder' : 'shipped with the app'}">${esc(d.source)}</span>`
+      : '';
+    const badge = src + (d.ok
+      ? (d.hasBehavior ? ' <span class="chip auto" title="has auto-actualize rules">auto</span>' : '')
+      : ' <span class="chip bad" title="' + esc(d.errors.join(' ')) + '">invalid</span>');
     const err = d.ok ? '' : `<div class="def-error">${esc(d.errors[0] || 'Invalid definition.')}</div>`;
     const addForm = openAddForm === d.id ? renderAddForm(d) : '';
     return `<div class="def-card ${d.ok ? '' : 'invalid'}" data-id="${esc(d.id)}">
@@ -383,7 +387,32 @@ els.form.addEventListener('submit', (e) => { e.preventDefault(); doConnect(false
 els.disconnectBtn.addEventListener('click', () => window.arete.disconnect());
 els.clearLogBtn.addEventListener('click', () => (els.log.innerHTML = ''));
 els.cpLink.addEventListener('click', (e) => { e.preventDefault(); window.arete.openExternal(els.cpLink.dataset.url); });
-els.reloadDefsBtn.addEventListener('click', () => window.arete.widgetReload());
+els.reloadDefsBtn.addEventListener('click', async () => {
+  els.reloadDefsBtn.disabled = true;
+  try {
+    await window.arete.widgetReload(); // rescans folders AND refreshes the online library
+  } finally {
+    els.reloadDefsBtn.disabled = false;
+    updateLibraryNote();
+  }
+});
+
+let userDirCache = '';
+async function updateLibraryNote(userDir) {
+  if (userDir) userDirCache = userDir;
+  try {
+    const li = await window.arete.libraryInfo();
+    const fresh = li.updatedAt ? ` · refreshed ${new Date(li.updatedAt).toLocaleString()}` : ' · not fetched yet';
+    const lib = li.url ? `Online library: ${li.url} (${li.count} widgets${fresh})` : 'Online library: off';
+    els.userDirNote.textContent = `${lib} — your local folder: ${userDirCache}`;
+  } catch (_) {
+    els.userDirNote.textContent = `Your widget folder: ${userDirCache}`;
+  }
+}
+
+els.libraryUrl.addEventListener('change', () => {
+  window.arete.saveSettings({ libraryUrl: els.libraryUrl.value.trim() });
+});
 els.autoConnect.addEventListener('change', () => window.arete.setAutoConnect(els.autoConnect.checked));
 els.themeLight.addEventListener('change', () => {
   const light = els.themeLight.checked;
@@ -411,7 +440,9 @@ async function init() {
   document.body.classList.toggle('light', light);
   els.themeLight.checked = light;
   els.systemNameNote.textContent = `nodes register under “${d.systemName}”`;
-  els.userDirNote.textContent = `Your widget folder: ${d.userWidgetsDir}`;
+  els.libraryUrl.value = d.libraryUrl;
+  els.libraryUrl.placeholder = d.libraryUrlDefault;
+  updateLibraryNote(d.userWidgetsDir);
 
   window.arete.onLog(logLine);
   window.arete.onStatus(renderStatus);

@@ -20,6 +20,9 @@
 .chip.off  { color: var(--muted); }
 .chip.bad  { color: var(--red); border-color: rgba(245,108,108,.4); background: rgba(245,108,108,.08); }
 .chip.auto { color: var(--accent); border-color: rgba(76,139,245,.4); background: rgba(76,139,245,.08); }
+.chip.src.library { color: var(--accent); border-color: rgba(76,139,245,.35); }
+.chip.src.local   { color: var(--green); border-color: rgba(62,207,142,.35); }
+.chip.src.bundled { color: var(--muted); }
 
 .cap-chip {
   display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 6px;

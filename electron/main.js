@@ -26,6 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 const DEFAULT_SYSTEM_NAME = "Arete Widget";
+const DEFAULT_LIBRARY_URL = 'https://project-arete.github.io/widget-library';
 
 const service = new AreteService();
 let manager = null;
@@ -183,10 +184,20 @@ app.whenReady().then(async () => {
     fs.mkdirSync(userWidgetsDir, { recursive: true });
   } catch (_) {}
 
+  const effectiveLibraryUrl = () => {
+    const s = settings.readSettings();
+    return s.libraryUrl !== undefined && s.libraryUrl !== null
+      ? String(s.libraryUrl).trim()
+      : DEFAULT_LIBRARY_URL;
+  };
+
   manager = new WidgetManager({
     service,
     dataDir: app.getPath('userData'),
-    widgetDirs: [path.join(ROOT, 'widgets'), userWidgetsDir],
+    bundledDir: path.join(ROOT, 'widgets'),
+    userDir: userWidgetsDir,
+    libraryCacheDir: path.join(app.getPath('userData'), 'library-widgets'),
+    libraryUrl: effectiveLibraryUrl(),
     fetchProfile,
   });
 
@@ -207,6 +218,8 @@ app.whenReady().then(async () => {
       systemName: s.systemName || env.ARETE_SYSTEM_NAME || DEFAULT_SYSTEM_NAME,
       theme: s.theme || 'dark',
       userWidgetsDir,
+      libraryUrl: effectiveLibraryUrl(),
+      libraryUrlDefault: DEFAULT_LIBRARY_URL,
     };
   });
 
@@ -259,7 +272,11 @@ app.whenReady().then(async () => {
 
   // ---- IPC: widgets ----
   ipcMain.handle('widget:defs', () => manager.listDefinitions());
-  ipcMain.handle('widget:reload', () => manager.loadDefinitions());
+  ipcMain.handle('widget:reload', () => {
+    manager.setLibraryUrl(effectiveLibraryUrl()); // pick up a just-edited URL
+    return manager.loadDefinitions();
+  });
+  ipcMain.handle('widget:libraryInfo', () => manager.libraryInfo());
   ipcMain.handle('widget:instances', () => manager.listInstances());
   ipcMain.handle('widget:add', (_evt, spec) => manager.addInstance(spec));
   ipcMain.handle('widget:remove', (_evt, id) => {

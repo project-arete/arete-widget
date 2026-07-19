@@ -1,6 +1,6 @@
 {
   "name": "arete-widget",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Arete Widget \u2014 create virtual widgets from YAML definitions and let them live on a CNS/CP realm. Each widget declares CP capabilities and renders a faceplate window in lieu of the physical device.",
   "author": "Anto <anto@padi.io>",
   "license": "(MIT OR Apache-2.0)",
@@ -18,7 +18,8 @@
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
     "pack": "electron-builder --dir",
-    "test:ui": "node scripts/test-ui.js"
+    "test:ui": "node scripts/test-ui.js",
+    "test:library": "node scripts/test-library.js"
   },
   "dependencies": {
     "arete-sdk": "^0.1.6",

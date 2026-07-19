@@ -58,7 +58,8 @@ async function fetchProfile(name) {
 const manager = new WidgetManager({
   service,
   dataDir,
-  widgetDirs: [path.join(ROOT, 'widgets')],
+  bundledDir: path.join(ROOT, 'widgets'),
+  libraryUrl: '', // this E2E test exercises the realm, not the online library
   fetchProfile,
 });
 manager.on('log', (e) => console.log(`  [${e.level}] ${e.message}`));

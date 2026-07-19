@@ -38,9 +38,12 @@ function base62(len = 22) {
 export class WidgetManager extends EventEmitter {
   #service;
   #dataDir;
-  #widgetDirs;
+  #bundledDir;
+  #userDir;
+  #libraryCacheDir;
+  #libraryUrl;
   #fetchProfile;
-  #defs = new Map(); // widgetId -> {id, file, ok, errors, title, description, model}
+  #defs = new Map(); // widgetId -> {id, file, source, ok, errors, title, description, model}
   #instances = [];   // persisted records
   #live = new Map(); // instanceId -> {caps, pending, state, connections}
   #lastKeys = {};
@@ -49,16 +52,75 @@ export class WidgetManager extends EventEmitter {
    * @param {object} deps
    * @param {AreteService} deps.service
    * @param {string} deps.dataDir where instances.json lives
-   * @param {string[]} deps.widgetDirs dirs scanned for *.yaml definitions
+   * @param {string} deps.bundledDir definitions shipped with the app (offline fallback)
+   * @param {string} [deps.userDir] the user's own local definitions (highest precedence)
+   * @param {string} [deps.libraryCacheDir] where fetched online-library files are cached
+   * @param {string} [deps.libraryUrl] base URL of the online catalog ('' disables)
    * @param {(name:string)=>Promise<object|null>} deps.fetchProfile registry fetch (cached)
    */
-  constructor({ service, dataDir, widgetDirs, fetchProfile }) {
+  constructor({ service, dataDir, bundledDir, userDir, libraryCacheDir, libraryUrl, fetchProfile }) {
     super();
     this.#service = service;
     this.#dataDir = dataDir;
-    this.#widgetDirs = widgetDirs;
+    this.#bundledDir = bundledDir;
+    this.#userDir = userDir || null;
+    this.#libraryCacheDir = libraryCacheDir || null;
+    this.#libraryUrl = (libraryUrl || '').trim();
     this.#fetchProfile = fetchProfile;
     this.#loadInstances();
+  }
+
+  setLibraryUrl(url) {
+    this.#libraryUrl = (url || '').trim();
+  }
+
+  /** Info for the UI: where the library comes from and how fresh the cache is. */
+  libraryInfo() {
+    let updatedAt = null;
+    try {
+      updatedAt = fs.statSync(path.join(this.#libraryCacheDir, 'index.json')).mtimeMs;
+    } catch (_) {}
+    return {
+      url: this.#libraryUrl,
+      updatedAt,
+      count: [...this.#defs.values()].filter((d) => d.source === 'library').length,
+    };
+  }
+
+  // Fetch the online catalog into the local cache. Failures are non-fatal —
+  // the previously cached files (or bundled defs) keep working offline.
+  async #refreshLibrary() {
+    if (!this.#libraryUrl || !this.#libraryCacheDir) return;
+    const base = this.#libraryUrl.replace(/\/+$/, '');
+    try {
+      const idxRes = await fetch(base + '/index.json', {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!idxRes.ok) throw new Error('HTTP ' + idxRes.status);
+      const idx = await idxRes.json();
+      if (!idx || !Array.isArray(idx.widgets)) throw new Error('not a widget catalog');
+
+      fs.mkdirSync(this.#libraryCacheDir, { recursive: true });
+      const keep = new Set(['index.json']);
+      for (const w of idx.widgets) {
+        if (!w || typeof w.file !== 'string') continue;
+        const fname = path.basename(w.file); // flatten; never write outside the cache dir
+        if (!/\.ya?ml$/i.test(fname)) continue;
+        const res = await fetch(base + '/' + w.file, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) throw new Error(`${w.file}: HTTP ${res.status}`);
+        fs.writeFileSync(path.join(this.#libraryCacheDir, fname), await res.text());
+        keep.add(fname);
+      }
+      // Drop cached files that left the catalog.
+      for (const f of fs.readdirSync(this.#libraryCacheDir)) {
+        if (!keep.has(f)) fs.rmSync(path.join(this.#libraryCacheDir, f), { force: true });
+      }
+      fs.writeFileSync(path.join(this.#libraryCacheDir, 'index.json'), JSON.stringify(idx));
+      this.#log('info', `Widget library refreshed — ${idx.widgets.length} definition(s) from ${base}.`);
+    } catch (e) {
+      this.#log('warn', `Widget library refresh failed (${e.message || e}) — using cached copies.`);
+    }
   }
 
   #log(level, message) {
@@ -66,54 +128,69 @@ export class WidgetManager extends EventEmitter {
   }
 
   // ------------------------------------------------------------ definitions
-  async loadDefinitions() {
-    const files = [];
-    for (const dir of this.#widgetDirs) {
+  /**
+   * (Re)load all definitions. Sources in ASCENDING precedence — a later source
+   * overrides an earlier one with the same widget id:
+   *   bundled (shipped with the app) < library (online catalog, cached) < local (user's folder)
+   * @param {boolean} [refresh=true] also re-fetch the online catalog first
+   */
+  async loadDefinitions(refresh = true) {
+    if (refresh) await this.#refreshLibrary();
+
+    const sources = [
+      { dir: this.#bundledDir, source: 'bundled' },
+      { dir: this.#libraryCacheDir, source: 'library' },
+      { dir: this.#userDir, source: 'local' },
+    ];
+    const defs = new Map();
+    for (const { dir, source } of sources) {
+      if (!dir) continue;
       let entries = [];
       try {
-        entries = fs.readdirSync(dir);
+        entries = fs.readdirSync(dir).sort();
       } catch (_) {
         continue; // dir may not exist yet
       }
       for (const f of entries) {
-        if (/\.ya?ml$/i.test(f)) files.push(path.join(dir, f));
-      }
-    }
+        if (!/\.ya?ml$/i.test(f)) continue;
+        const file = path.join(dir, f);
+        let raw;
+        try {
+          raw = yaml.load(fs.readFileSync(file, 'utf8'));
+        } catch (e) {
+          const id = f.replace(/\.ya?ml$/i, '');
+          defs.set(id, { id, file, source, ok: false, errors: ['YAML parse error: ' + (e.message || e)], title: id, description: '', model: null });
+          continue;
+        }
+        // Resolve every referenced profile from the registry FIRST (hard rule).
+        const profiles = {};
+        const wanted = new Set(
+          (Array.isArray(raw?.capabilities) ? raw.capabilities : [])
+            .map((c) => c && c.profile)
+            .filter(Boolean)
+        );
+        for (const name of wanted) profiles[name] = await this.#fetchProfile(name);
 
-    const defs = new Map();
-    for (const file of files) {
-      let raw;
-      try {
-        raw = yaml.load(fs.readFileSync(file, 'utf8'));
-      } catch (e) {
-        const id = path.basename(file).replace(/\.ya?ml$/i, '');
-        defs.set(id, { id, file, ok: false, errors: ['YAML parse error: ' + (e.message || e)], title: id, description: '', model: null });
-        continue;
+        const res = validateDefinition(raw, profiles);
+        const id = res.model ? res.model.id : f.replace(/\.ya?ml$/i, '');
+        if (defs.has(id) && defs.get(id).source === source) {
+          this.#log('warn', `Two ${source} files define widget id "${id}" — keeping ${defs.get(id).file}, ignoring ${file}.`);
+          continue;
+        }
+        if (defs.has(id)) {
+          this.#log('info', `Widget "${id}": ${source} definition overrides the ${defs.get(id).source} one.`);
+        }
+        defs.set(id, {
+          id,
+          file,
+          source,
+          ok: res.ok,
+          errors: res.errors,
+          title: res.model ? res.model.title : id,
+          description: res.model ? res.model.description : '',
+          model: res.model,
+        });
       }
-      // Resolve every referenced profile from the registry FIRST (hard rule).
-      const profiles = {};
-      const wanted = new Set(
-        (Array.isArray(raw?.capabilities) ? raw.capabilities : [])
-          .map((c) => c && c.profile)
-          .filter(Boolean)
-      );
-      for (const name of wanted) profiles[name] = await this.#fetchProfile(name);
-
-      const res = validateDefinition(raw, profiles);
-      const id = res.model ? res.model.id : path.basename(file).replace(/\.ya?ml$/i, '');
-      if (defs.has(id)) {
-        defs.set(id + '~dup', { id: id + '~dup', file, ok: false, errors: [`Duplicate widget id "${id}" (already defined in ${defs.get(id).file}).`], title: id, description: '', model: null });
-        continue;
-      }
-      defs.set(id, {
-        id,
-        file,
-        ok: res.ok,
-        errors: res.errors,
-        title: res.model ? res.model.title : id,
-        description: res.model ? res.model.description : '',
-        model: res.model,
-      });
     }
     this.#defs = defs;
     const bad = [...defs.values()].filter((d) => !d.ok);
@@ -127,6 +204,7 @@ export class WidgetManager extends EventEmitter {
     return [...this.#defs.values()].map((d) => ({
       id: d.id,
       file: d.file,
+      source: d.source,
       ok: d.ok,
       errors: d.errors,
       title: d.title,
