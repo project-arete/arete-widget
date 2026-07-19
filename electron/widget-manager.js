@@ -253,6 +253,7 @@ export class WidgetManager extends EventEmitter {
         state: live ? live.state : {},
         connections: live ? live.connections : 0,
         peers: live ? live.peers || [] : [],
+        perConn: live ? live.perConn || {} : {},
         widgetOk: !!(def && def.ok),
         widgetTitle: def ? def.title : inst.widgetId,
       };
@@ -385,16 +386,18 @@ export class WidgetManager extends EventEmitter {
     const def = this.#defs.get(inst.widgetId);
     if (!live || !def || !def.ok || !inst.systemId) return;
 
-    const { state, connections } = deriveState(keys, inst, def.model);
+    const { state, connections, perConn } = deriveState(keys, inst, def.model);
     reconcilePending(state, live.pending);
     const peers = this.#peersFor(inst, def.model, keys);
 
     const changed =
       connections !== live.connections ||
       JSON.stringify(state) !== JSON.stringify(live.state) ||
+      JSON.stringify(perConn) !== JSON.stringify(live.perConn || {}) ||
       JSON.stringify(peers) !== JSON.stringify(live.peers || []);
     live.state = state;
     live.connections = connections;
+    live.perConn = perConn;
     live.peers = peers;
 
     // Auto-actualize: converge on the declared rules.
@@ -412,6 +415,7 @@ export class WidgetManager extends EventEmitter {
         state: { ...state, ...live.pending },
         connections,
         peers,
+        perConn,
       });
     }
   }
@@ -443,6 +447,7 @@ export class WidgetManager extends EventEmitter {
       state: { ...live.state, ...live.pending },
       connections: live.connections,
       peers: live.peers || [],
+      perConn: live.perConn || {},
     });
   }
 }

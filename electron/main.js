@@ -281,10 +281,12 @@ function wireEvents() {
   manager.on('log', (e) => toMain('arete:log', e));
   manager.on('defs', (defs) => toMain('widget:defs', defs));
   manager.on('instances', (list) => toMain('widget:instances', list));
-  manager.on('state', ({ id, state, connections, peers }) => {
+  manager.on('state', ({ id, state, connections, peers, perConn }) => {
     toMain('widget:state', { id, state, connections, peers });
     const fp = faceplates.get(id);
-    if (fp && !fp.isDestroyed()) fp.webContents.send('widget:state', { id, state, connections, peers });
+    if (fp && !fp.isDestroyed()) {
+      fp.webContents.send('widget:state', { id, state, connections, peers, perConn });
+    }
   });
 }
 
@@ -439,6 +441,7 @@ app.whenReady().then(async () => {
       state: inst.state,
       connections: inst.connections,
       peers: inst.peers || [],
+      perConn: inst.perConn || {},
       attached: inst.attached,
       pinned: !!(readFpBounds()[inst.id] || {}).pinned,
       theme: settings.readSettings().theme || 'dark',

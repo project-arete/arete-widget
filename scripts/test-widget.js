@@ -87,32 +87,44 @@ try {
   console.log(`2) Connecting to ${opts.protocol}//${opts.host}:${opts.port} ...`);
   await service.connect(opts);
 
-  console.log('3) Creating Virtual Switch + Virtual Bulb in ONE context ...');
+  console.log('3) Creating Virtual Switch + TWO Virtual Bulbs in ONE context ...');
   const sw = await manager.addInstance({ widgetId: 'switch', name: 'Headless Switch' });
   const bulb = await manager.addInstance({
     widgetId: 'bulb',
-    name: 'Headless Bulb',
+    name: 'Headless Bulb A',
+    contextId: sw.contextId,
+    contextName: sw.contextName,
+  });
+  const bulb2 = await manager.addInstance({
+    widgetId: 'bulb',
+    name: 'Headless Bulb B',
     contextId: sw.contextId,
     contextName: sw.contextName,
   });
   console.log('   context:', sw.contextId);
 
-  console.log('4) Waiting for the broker to bind provider <-> consumer ...');
-  await waitFor('broker binding (connections > 0 on both)', () => {
+  console.log('4) Waiting for the broker to bind provider <-> both consumers ...');
+  await waitFor('broker binding (switch has 2 connections, bulbs 1 each)', () => {
     const s = manager.getInstance(sw.id);
-    const b = manager.getInstance(bulb.id);
-    return s && b && s.connections > 0 && b.connections > 0;
+    const a = manager.getInstance(bulb.id);
+    const b = manager.getInstance(bulb2.id);
+    return s && a && b && s.connections === 2 && a.connections > 0 && b.connections > 0;
   });
-  console.log('   bound ✔');
+  const swPeers = manager.getInstance(sw.id).peers;
+  if (swPeers.length !== 2) throw new Error('switch should report 2 peers, got ' + swPeers.length);
+  console.log('   bound ✔ — switch peers:', swPeers.map((p) => p.system + '·' + p.node).join(', '));
 
   console.log('5) Flipping the switch ON (sOut=1) ...');
   await manager.putProperty(sw.id, 'sOut', '1');
-  await waitFor('bulb auto-actualizes cState=1 and switch sees it', () => {
+  await waitFor('BOTH bulbs auto-actualize cState=1, per-connection views agree', () => {
     const s = manager.getInstance(sw.id);
-    const b = manager.getInstance(bulb.id);
-    return b && b.state.cState === '1' && s && s.state.cState === '1';
+    const a = manager.getInstance(bulb.id);
+    const b = manager.getInstance(bulb2.id);
+    if (!(a && a.state.cState === '1' && b && b.state.cState === '1')) return false;
+    const views = Object.values(s.perConn).map((c) => c.cState);
+    return views.length === 2 && views.every((v) => v === '1');
   });
-  console.log('   bulb reports cState=1 ✔ (auto-actualize rule fired)');
+  console.log('   both bulbs report cState=1 ✔ (perConn views agree)');
 
   console.log('6) Flipping the switch OFF (sOut=0) ...');
   await manager.putProperty(sw.id, 'sOut', '0');

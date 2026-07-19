@@ -383,11 +383,15 @@ function renderInstances() {
     const stateBits = Object.entries(i.state || {})
       .map(([k, v]) => `<span class="kv"><span class="k">${esc(k)}</span>=<span class="v">${esc(v)}</span></span>`)
       .join(' ');
+    const peerNames = [...new Set((i.peers || []).map((p) => p.system))];
+    const peerBit = peerNames.length
+      ? ` · ⇄ ${esc(peerNames.slice(0, 3).join(', '))}${peerNames.length > 3 ? '…' : ''}`
+      : '';
     const removeLabel = removeArmed === i.id ? 'Sure?' : 'Remove';
     return `<div class="inst-row" data-id="${esc(i.id)}">
       <div class="inst-main">
         <div class="inst-name">${esc(i.name)} <span class="inst-widget">${esc(i.widgetTitle)}</span> ${chip}</div>
-        <div class="inst-sub">context <strong>${esc(i.contextName)}</strong> <span class="mono dim">${esc(i.contextId.slice(0, 10))}…</span></div>
+        <div class="inst-sub">context <strong>${esc(i.contextName)}</strong> <span class="mono dim">${esc(i.contextId.slice(0, 10))}…</span>${peerBit}</div>
         <div class="inst-state">${stateBits}</div>
       </div>
       <div class="inst-actions">
@@ -490,9 +494,9 @@ async function init() {
   window.arete.onKeys((k) => { keys = k || {}; refreshCtxOptions(); });
   window.arete.onWidgetDefs((list) => { defs = list || []; renderDefs(); });
   window.arete.onWidgetInstances((list) => { instances = list || []; renderInstances(); });
-  window.arete.onWidgetState(({ id, state, connections }) => {
+  window.arete.onWidgetState(({ id, state, connections, peers }) => {
     const i = instances.find((x) => x.id === id);
-    if (i) { i.state = state; i.connections = connections; renderInstances(); }
+    if (i) { i.state = state; i.connections = connections; if (peers) i.peers = peers; renderInstances(); }
   });
 
   defs = await window.arete.widgetDefs();

@@ -10,7 +10,13 @@
 const $ = (id) => document.getElementById(id);
 
 let fp = null;              // bootstrap payload
-let state = {};
+let state = {};             // the EFFECTIVE view (merged, or one connection's)
+let merged = {};            // merged state as pushed by main
+let perConn = {};           // connId -> that connection's property map
+let peers = [];             // [{connId, system, node, profile}]
+let selConn = 'all';        // 'all' | connId — which connection the read side shows
+let mixedMap = {};          // bind -> [distinct values] when peers disagree (All view)
+let peerWritten = new Set(); // binds NOT writable by this widget = written by peers
 const updaters = [];        // fns called with (state) on every push
 
 function chip(connections, attached) {
@@ -20,14 +26,61 @@ function chip(connections, attached) {
   else { el.className = 'chip wait'; el.textContent = 'awaiting broker'; }
 }
 
-function peersLine(peers) {
+function peersLine() {
   const el = $('fpPeers');
-  if (!peers || !peers.length) { el.textContent = ''; return; }
-  if (peers.length === 1) {
-    el.textContent = `bound to ${peers[0].system} · ${peers[0].node}`;
-  } else {
-    const names = [...new Set(peers.map((p) => p.system))];
-    el.textContent = `${peers.length} connections: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}`;
+  // With the peer strip visible (2+ connections) the footer line is redundant.
+  if (!peers.length || peers.length >= 2) { el.textContent = ''; return; }
+  el.textContent = `bound to ${peers[0].system} · ${peers[0].node}`;
+}
+
+// The peer strip: appears only at 2+ connections. "All" aggregates; a peer
+// chip filters the read side to that single connection.
+function renderStrip() {
+  const strip = $('fpStrip');
+  if (peers.length < 2) {
+    strip.hidden = true;
+    if (selConn !== 'all') { selConn = 'all'; }
+    return;
+  }
+  if (selConn !== 'all' && !peers.some((p) => p.connId === selConn)) selConn = 'all';
+  strip.hidden = false;
+  strip.innerHTML = '';
+  const mk = (id, label, title) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'peer' + (selConn === id ? ' on' : '');
+    b.textContent = label;
+    if (title) b.title = title;
+    b.addEventListener('click', () => {
+      selConn = id;
+      renderStrip();
+      computeView();
+      for (const fn of updaters) fn(state);
+    });
+    return b;
+  };
+  strip.appendChild(mk('all', `All · ${peers.length}`, 'aggregate view of every connection'));
+  for (const p of peers) strip.appendChild(mk(p.connId, p.system, `${p.system} · ${p.node} (${p.profile})`));
+}
+
+// Build the effective state for the current selection, and the mixed map for
+// the All view (peer-written props where connections disagree).
+function computeView() {
+  mixedMap = {};
+  if (selConn !== 'all' && perConn[selConn]) {
+    state = { ...merged, ...perConn[selConn] };
+    return;
+  }
+  state = merged;
+  if (peers.length >= 2) {
+    for (const bind of peerWritten) {
+      const vals = new Set();
+      for (const p of peers) {
+        const pc = perConn[p.connId];
+        if (pc && pc[bind] !== undefined) vals.add(pc[bind]);
+      }
+      if (vals.size > 1) mixedMap[bind] = [...vals];
+    }
   }
 }
 
@@ -55,13 +108,27 @@ function flash(node) {
 }
 function watch(prim, fn) {
   let prev;
+  let prevMixed = false;
   let first = true;
   updaters.push((s) => {
+    const mixed = !!mixedMap[prim.bind];
     const raw = s[prim.bind];
-    fn(raw, !first && raw !== prev);
+    fn(raw, !first && !mixed && !prevMixed && raw !== prev, mixed, mixedMap[prim.bind]);
     prev = raw;
+    prevMixed = mixed;
     first = false;
   });
+}
+
+// Breakdown tooltip for a mixed value: '2× "1" · 1× "0"'.
+function mixedTitle(prim) {
+  const counts = {};
+  for (const p of peers) {
+    const pc = perConn[p.connId];
+    const v = pc ? pc[prim.bind] : undefined;
+    if (v !== undefined) counts[v] = (counts[v] || 0) + 1;
+  }
+  return Object.entries(counts).map(([v, n]) => `${n}× "${v}"`).join(' · ');
 }
 
 function act(prim, value) {
@@ -71,7 +138,11 @@ function act(prim, value) {
 const BUILDERS = {
   lamp(prim) {
     const lamp = el('div', 'lamp');
-    watch(prim, (raw) => lamp.classList.toggle('on', raw === prim.on));
+    watch(prim, (raw, _c, mixed) => {
+      lamp.classList.toggle('mixed', mixed);
+      lamp.classList.toggle('on', !mixed && raw === prim.on);
+      lamp.title = mixed ? 'mixed: ' + mixedTitle(prim) : '';
+    });
     return lamp;
   },
 
@@ -87,7 +158,15 @@ const BUILDERS = {
 
   value(prim) {
     const v = el('div', 'value empty', '—');
-    watch(prim, (raw, changed) => {
+    watch(prim, (raw, changed, mixed) => {
+      v.classList.toggle('mixed', mixed);
+      if (mixed) {
+        v.classList.remove('empty');
+        v.textContent = 'mixed';
+        v.title = mixedTitle(prim);
+        return;
+      }
+      v.title = '';
       const empty = raw === undefined || raw === null || raw === '';
       v.classList.toggle('empty', empty);
       v.textContent = empty ? '—' : String(raw);
@@ -98,7 +177,13 @@ const BUILDERS = {
 
   label(prim) {
     const l = el('div', 'labelval', prim.text || '—');
-    if (prim.bind) watch(prim, (raw, changed) => { l.textContent = raw ? String(raw) : '—'; if (changed) flash(l); });
+    if (prim.bind) {
+      watch(prim, (raw, changed, mixed) => {
+        l.textContent = mixed ? 'mixed' : raw ? String(raw) : '—';
+        l.title = mixed ? mixedTitle(prim) : '';
+        if (changed) flash(l);
+      });
+    }
     return l;
   },
 
@@ -131,7 +216,16 @@ const BUILDERS = {
     }
     const num = el('span', 'meter-num', '—');
     box.appendChild(num);
-    watch(prim, (raw, changed) => {
+    watch(prim, (raw, changed, mixed) => {
+      if (mixed) {
+        for (const s of segs) s.node.classList.remove('lit');
+        num.textContent = 'mix';
+        num.title = mixedTitle(prim);
+        num.classList.add('mixed');
+        return;
+      }
+      num.classList.remove('mixed');
+      num.title = '';
       const n = Number(raw);
       const has = raw !== undefined && raw !== '' && Number.isFinite(n);
       for (const s of segs) s.node.classList.toggle('lit', has && s.v <= n && s.v > prim.min - 1 && n >= prim.min);
@@ -146,7 +240,12 @@ const BUILDERS = {
     // read-only -> a badge showing the current value.
     if (!writable) {
       const b = el('span', 'opt-badge', '—');
-      watch(prim, (raw, changed) => { b.textContent = raw || '—'; if (changed) flash(b); });
+      watch(prim, (raw, changed, mixed) => {
+        b.classList.toggle('mixed', mixed);
+        b.textContent = mixed ? 'mixed' : raw || '—';
+        b.title = mixed ? mixedTitle(prim) : '';
+        if (changed) flash(b);
+      });
       return b;
     }
     if (prim.values.length <= 4) {
@@ -250,8 +349,11 @@ function build() {
   }
 }
 
-function apply(s) {
-  state = s || {};
+function apply(payload) {
+  merged = payload.state || {};
+  perConn = payload.perConn || {};
+  if (payload.peers) peers = payload.peers;
+  computeView();
   for (const fn of updaters) fn(state);
 }
 
@@ -278,14 +380,21 @@ async function init() {
   });
   $('fpClose').addEventListener('click', () => window.close());
 
+  peerWritten = new Set(
+    fp.view.filter((v) => v.bind && !fp.writable.includes(v.bind)).map((v) => v.bind)
+  );
+  peers = fp.peers || [];
   build();
   chip(fp.connections, fp.attached);
-  peersLine(fp.peers);
-  apply(fp.state);
-  window.faceplate.onState(({ state: s, connections, peers }) => {
+  peersLine();
+  renderStrip();
+  apply({ state: fp.state, perConn: fp.perConn, peers: fp.peers });
+  window.faceplate.onState(({ state: s, connections, peers: p, perConn: pc }) => {
     chip(connections, true);
-    peersLine(peers);
-    apply(s);
+    peers = p || [];
+    peersLine();
+    renderStrip();
+    apply({ state: s, perConn: pc, peers: p });
   });
   if (window.faceplate.onTheme) {
     window.faceplate.onTheme((theme) => document.body.classList.toggle('light', theme === 'light'));

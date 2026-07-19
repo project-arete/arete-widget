@@ -18,39 +18,45 @@
 
 /**
  * Derive the faceplate/rule state for one instance from the flat CNS keys.
- * Capability properties first, overlaid by connection properties (connections
- * mirror BOTH sides' props, so this is where the peer's writes appear).
+ *
+ * Returns BOTH views of the truth:
+ *  - `state`: capability properties overlaid by connection properties — the
+ *    merged view. With 0-1 connections this is exact; with 2+ connections,
+ *    peer-written properties are last-write-wins and therefore ambiguous —
+ *    consumers of this API should use `perConn` to detect/display conflicts.
+ *  - `perConn`: connId -> properties of THAT connection (connections mirror
+ *    both sides' props, so each entry is a complete per-peer view).
  *
  * @param {Object<string,string>} keys flat CNS namespace
  * @param {object} inst {systemId, nodeId, contextId}
  * @param {object} model validated widget model (capabilities: [{profile, role}])
- * @returns {{state:Object<string,string>, connections:number}}
+ * @returns {{state:Object<string,string>, connections:number, perConn:Object<string,Object<string,string>>}}
  */
 export function deriveState(keys, inst, model) {
-  const state = {};
-  let connections = 0;
+  const capProps = {};
+  const perConn = {};
+  const allConnIds = [];
   for (const cap of model.capabilities) {
     const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}/${cap.role}/${cap.profile}/`;
     const connIds = new Set();
-    // pass 1: capability properties
     for (const k in keys) {
       if (!k.startsWith(prefix)) continue;
       const rest = k.slice(prefix.length);
       if (rest.startsWith('properties/')) {
-        state[rest.slice('properties/'.length)] = keys[k];
+        capProps[rest.slice('properties/'.length)] = keys[k];
       } else if (rest.startsWith('connections/')) {
-        connIds.add(rest.split('/')[1]);
+        const connId = rest.split('/')[1];
+        connIds.add(connId);
+        const m = rest.match(/^connections\/[^/]+\/properties\/(.+)$/);
+        if (m) (perConn[connId] || (perConn[connId] = {}))[m[1]] = keys[k];
       }
     }
-    // pass 2: connection properties overlay (peer writes live here)
-    for (const k in keys) {
-      if (!k.startsWith(prefix + 'connections/')) continue;
-      const m = k.slice(prefix.length).match(/^connections\/[^/]+\/properties\/(.+)$/);
-      if (m) state[m[1]] = keys[k];
-    }
-    connections += connIds.size;
+    allConnIds.push(...connIds);
   }
-  return { state, connections };
+  // Merged view: capability props first, then connection overlays.
+  const state = { ...capProps };
+  for (const id of allConnIds) if (perConn[id]) Object.assign(state, perConn[id]);
+  return { state, connections: allConnIds.length, perConn };
 }
 
 /**

@@ -117,4 +117,24 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
   ok('converged state produces no actions (idempotent)');
 }
 
+// ---- multi-connection derivation ----
+{
+  const raw = yaml.load(fs.readFileSync(path.join(ROOT, 'widgets', 'switch.yaml'), 'utf8'));
+  const { model } = validateDefinition(raw, PROFILES);
+  const inst = { systemId: 'SYS', nodeId: 'NODE', contextId: 'CTX' };
+  const base = `cns/SYS/nodes/NODE/contexts/CTX/provider/padi.light/`;
+  // a switch commanding TWO bulbs that currently disagree
+  const keys = {
+    [base + 'properties/sOut']: '1',
+    [base + 'connections/aaa/properties/cState']: '1',
+    [base + 'connections/bbb/properties/cState']: '0',
+  };
+  const d = deriveState(keys, inst, model);
+  assert.equal(d.connections, 2);
+  assert.equal(d.perConn.aaa.cState, '1');
+  assert.equal(d.perConn.bbb.cState, '0');
+  assert.ok(d.state.cState === '1' || d.state.cState === '0'); // merged view is last-write-wins
+  ok('deriveState: perConn exposes each connection; merged view still present');
+}
+
 console.log(`\n✅ PASS — ${n} spec/engine checks.`);
