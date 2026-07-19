@@ -1,0 +1,311 @@
+// main.js — Electron main process for ARETE WIDGET.
+// Owns the windows (main + one faceplate per widget instance), persists
+// identity/config, and bridges AreteService + WidgetManager to the renderers
+// over IPC. The Arete SDK and all widget behavior run HERE — a virtual widget
+// keeps living (receiving, auto-actualizing, reporting) even when its
+// faceplate window is closed. Faceplates are just views.
+
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+import { installSystemIdPatch } from './arete-system-id.js';
+import { AreteService } from './arete-service.js';
+import { WidgetManager } from './widget-manager.js';
+import * as settings from './settings.js';
+
+// IMPORTANT: get `fs` via createRequire, NOT `import fs from 'node:fs'` — a
+// static ESM fs import would snapshot the fs facade before the SDK's System-ID
+// patch env var is in place (see arete-system-id.js; verified in the Monitor).
+const require = createRequire(import.meta.url);
+const fs = require('fs');
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
+
+const DEFAULT_SYSTEM_NAME = "Arete Widget";
+
+const service = new AreteService();
+let manager = null;
+let mainWindow = null;
+const faceplates = new Map(); // instanceId -> BrowserWindow
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function readEnvFile() {
+  const p = path.join(ROOT, '.env');
+  const env = {};
+  try {
+    const text = fs.readFileSync(p, 'utf8');
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq === -1) continue;
+      env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+    }
+  } catch (_) {
+    /* no .env — fine */
+  }
+  return env;
+}
+
+function loadOrCreateSeed() {
+  const seedFile = path.join(app.getPath('userData'), 'system-id.txt');
+  try {
+    return fs.readFileSync(seedFile, 'utf8').trim();
+  } catch (_) {
+    const seed = crypto.randomUUID();
+    try {
+      fs.mkdirSync(app.getPath('userData'), { recursive: true });
+      fs.writeFileSync(seedFile, seed);
+    } catch (e) {
+      console.error('Failed to persist system-id seed', e);
+    }
+    return seed;
+  }
+}
+
+// CP registry cache — fetched in main so renderers never touch the network.
+const profileCache = new Map();
+async function fetchProfile(name) {
+  if (!name) return null;
+  if (profileCache.has(name)) return profileCache.get(name);
+  try {
+    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
+      headers: { accept: 'application/json' },
+    });
+    const json = res.ok ? await res.json() : null;
+    profileCache.set(name, json);
+    return json;
+  } catch (_) {
+    profileCache.set(name, null);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Windows
+// ---------------------------------------------------------------------------
+function createMainWindow() {
+  mainWindow = new BrowserWindow({
+    width: 980,
+    height: 720,
+    minWidth: 760,
+    minHeight: 540,
+    title: 'Arete Widget',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  mainWindow.loadFile(path.join(ROOT, 'renderer', 'index.html'));
+  mainWindow.on('closed', () => (mainWindow = null));
+}
+
+function openFaceplate(instanceId) {
+  const existing = faceplates.get(instanceId);
+  if (existing && !existing.isDestroyed()) {
+    existing.focus();
+    return;
+  }
+  const inst = manager.getInstance(instanceId);
+  if (!inst) return;
+  // Size the window to the faceplate: small widgets (a bulb) stay compact,
+  // big ones (trust profiles with a dozen fields) open tall enough to use.
+  const model = manager.getModel(inst.widgetId);
+  const items = model ? model.view.length : 4;
+  const height = Math.max(300, Math.min(760, 150 + items * 58));
+  const win = new BrowserWindow({
+    width: 300,
+    height,
+    minWidth: 220,
+    minHeight: 260,
+    title: inst.name,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-faceplate.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      additionalArguments: ['--arete-instance=' + instanceId],
+    },
+  });
+  win.loadFile(path.join(ROOT, 'renderer', 'faceplate.html'));
+  win.on('closed', () => faceplates.delete(instanceId));
+  faceplates.set(instanceId, win);
+}
+
+// ---------------------------------------------------------------------------
+// Event wiring: service + manager -> renderers
+// ---------------------------------------------------------------------------
+function wireEvents() {
+  const toMain = (ch, payload) => mainWindow?.webContents.send(ch, payload);
+
+  service.on('log', (e) => toMain('arete:log', e));
+  service.on('status', (st) => {
+    toMain('arete:status', st);
+    if (st.state === 'disconnected' || st.state === 'error') manager.detachAll();
+  });
+  service.on('keys', (keys) => {
+    toMain('arete:keys', keys);
+    manager.onKeys(keys);
+  });
+  // SDK auto-reconnect recovered the channel: re-attach all widget instances
+  // (registration is idempotent; behavior rules then reconverge on the realm).
+  service.on('reconnected', () => manager.attachAll().catch(() => {}));
+
+  manager.on('log', (e) => toMain('arete:log', e));
+  manager.on('defs', (defs) => toMain('widget:defs', defs));
+  manager.on('instances', (list) => toMain('widget:instances', list));
+  manager.on('state', ({ id, state, connections }) => {
+    toMain('widget:state', { id, state, connections });
+    const fp = faceplates.get(id);
+    if (fp && !fp.isDestroyed()) fp.webContents.send('widget:state', { id, state, connections });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
+app.whenReady().then(async () => {
+  const seed = loadOrCreateSeed();
+  installSystemIdPatch(seed);
+  const env = readEnvFile();
+
+  // User widget dir (survives app updates) + the definitions the app ships.
+  const userWidgetsDir = path.join(app.getPath('userData'), 'widgets');
+  try {
+    fs.mkdirSync(userWidgetsDir, { recursive: true });
+  } catch (_) {}
+
+  manager = new WidgetManager({
+    service,
+    dataDir: app.getPath('userData'),
+    widgetDirs: [path.join(ROOT, 'widgets'), userWidgetsDir],
+    fetchProfile,
+  });
+
+  // ---- IPC: connection/config ----
+  ipcMain.handle('arete:getDefaults', () => {
+    const s = settings.readSettings();
+    const last = s.lastConnect || {};
+    return {
+      protocol: last.protocol || env.ARETE_PROTOCOL || 'wss:',
+      host: last.host ?? (env.ARETE_HOST || ''),
+      port: Number(last.port || env.ARETE_PORT || 443),
+      username: last.username ?? (env.ARETE_USER || ''),
+      password: s.rememberPassword ? settings.decryptPassword(s.passwordEnc) : (env.ARETE_PASS || ''),
+      allowSelfSigned: last.allowSelfSigned ?? ((env.ARETE_ALLOW_SELF_SIGNED ?? '0') === '1'),
+      rememberPassword: !!s.rememberPassword,
+      autoConnect: !!s.autoConnect,
+      canRememberPassword: settings.canEncrypt(),
+      systemName: s.systemName || env.ARETE_SYSTEM_NAME || DEFAULT_SYSTEM_NAME,
+      theme: s.theme || 'dark',
+      userWidgetsDir,
+    };
+  });
+
+  // Generic preference persistence (theme, ...). A theme change is pushed to
+  // every open faceplate window so they switch live with the main window.
+  ipcMain.handle('arete:saveSettings', (_evt, patch) => {
+    const next = settings.writeSettings(patch || {});
+    if (patch && patch.theme) {
+      for (const w of faceplates.values()) {
+        if (!w.isDestroyed()) w.webContents.send('widget:theme', patch.theme);
+      }
+    }
+    return next;
+  });
+
+  ipcMain.handle('arete:connect', async (_evt, opts) => {
+    const { rememberPassword, autoConnect, systemName, ...conn } = opts || {};
+    const st = await service.connect({
+      ...conn,
+      systemName: (systemName || '').trim() || DEFAULT_SYSTEM_NAME,
+    });
+    // Persist config AFTER a successful connect.
+    settings.writeSettings({
+      lastConnect: {
+        protocol: conn.protocol,
+        host: conn.host,
+        port: conn.port,
+        username: conn.username,
+        allowSelfSigned: !!conn.allowSelfSigned,
+      },
+      systemName: (systemName || '').trim() || DEFAULT_SYSTEM_NAME,
+      rememberPassword: !!rememberPassword,
+      passwordEnc: rememberPassword ? settings.encryptPassword(conn.password) : null,
+      autoConnect: !!autoConnect,
+    });
+    await manager.attachAll();
+    return st;
+  });
+
+  ipcMain.handle('arete:disconnect', async () => {
+    manager.detachAll();
+    await service.disconnect();
+    return service.getStatus();
+  });
+  ipcMain.handle('arete:getStatus', () => service.getStatus());
+  ipcMain.handle('arete:getKeys', () => service.getKeys());
+  ipcMain.handle('arete:getProfile', (_evt, name) => fetchProfile(name));
+  ipcMain.handle('arete:openExternal', (_evt, url) => shell.openExternal(url));
+  ipcMain.handle('arete:setAutoConnect', (_evt, on) => settings.writeSettings({ autoConnect: !!on }));
+
+  // ---- IPC: widgets ----
+  ipcMain.handle('widget:defs', () => manager.listDefinitions());
+  ipcMain.handle('widget:reload', () => manager.loadDefinitions());
+  ipcMain.handle('widget:instances', () => manager.listInstances());
+  ipcMain.handle('widget:add', (_evt, spec) => manager.addInstance(spec));
+  ipcMain.handle('widget:remove', (_evt, id) => {
+    const fp = faceplates.get(id);
+    if (fp && !fp.isDestroyed()) fp.close();
+    manager.removeInstance(id);
+  });
+  ipcMain.handle('widget:open', (_evt, id) => openFaceplate(id));
+  ipcMain.handle('widget:action', (_evt, { id, property, value }) =>
+    manager.putProperty(id, property, value)
+  );
+  // Faceplate bootstrap: everything one faceplate window needs to render.
+  ipcMain.handle('widget:faceplate', (_evt, id) => {
+    const inst = manager.getInstance(id);
+    if (!inst) return null;
+    const model = manager.getModel(inst.widgetId);
+    return {
+      id: inst.id,
+      name: inst.name,
+      contextName: inst.contextName,
+      widgetId: inst.widgetId,
+      title: model ? model.title : inst.widgetId,
+      view: model ? model.view : [],
+      writable: model ? model.writable : [],
+      hasRules: !!(model && model.behavior.rules.length),
+      state: inst.state,
+      connections: inst.connections,
+      attached: inst.attached,
+      theme: settings.readSettings().theme || 'dark',
+    };
+  });
+
+  wireEvents();
+  await manager.loadDefinitions();
+  createMainWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  });
+});
+
+app.on('window-all-closed', async () => {
+  await service.disconnect().catch(() => {});
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', async () => {
+  await service.disconnect().catch(() => {});
+});

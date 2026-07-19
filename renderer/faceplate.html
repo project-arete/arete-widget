@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+    <title>Widget</title>
+    <link rel="stylesheet" href="faceplate.css" />
+  </head>
+  <body>
+    <header class="fp-head">
+      <div>
+        <h1 id="fpName">—</h1>
+        <p id="fpKind">—</p>
+      </div>
+      <span class="chip off" id="fpChip">…</span>
+    </header>
+    <main id="fpBody"></main>
+    <footer class="fp-foot" id="fpFoot" hidden>
+      <span class="chip auto">auto</span> <span>this widget actualizes automatically</span>
+    </footer>
+    <script src="faceplate.js"></script>
+  </body>
+</html>

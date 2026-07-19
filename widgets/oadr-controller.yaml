@@ -1,0 +1,39 @@
+# OADR Controller — server role of cp:skycentrics.oadr3.event.simple
+# ("Simple OpenADR 3.0 Profile", SkyCentrics). The registry defines:
+#   server (OADR Controller) writes: simpleLevel (0|1|2|3), reportReq, duration
+#   client (Simple Device)   writes: operatingLevel (0|1|2|3), status, reports
+widget: oadr-controller
+title: OADR Controller
+description: Sends a simple OpenADR 3.0 demand-response level (0-3) to connected devices, and shows what level they are actually operating at.
+
+capabilities:
+  - profile: skycentrics.oadr3.event.simple
+    role: provider
+
+view:
+  - type: label
+    text: — demand-response event you send —
+  - type: field
+    bind: simpleLevel
+    caption: DR level (0-3)
+  - type: field
+    bind: duration
+    caption: event duration
+  - type: field
+    bind: reportReq
+    caption: reports requested
+  - type: label
+    text: — reported by the device —
+  - type: value
+    bind: operatingLevel
+    caption: operating level
+  - type: value
+    bind: status
+    caption: device status
+  - type: value
+    bind: reports
+    caption: reports
+
+behavior:
+  init:
+    simpleLevel: "0"   # level 0 = normal operations, no event

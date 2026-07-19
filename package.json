@@ -1,0 +1,107 @@
+{
+  "name": "arete-widget",
+  "version": "0.1.0",
+  "description": "Arete Widget \u2014 create virtual widgets from YAML definitions and let them live on a CNS/CP realm. Each widget declares CP capabilities and renders a faceplate window in lieu of the physical device.",
+  "author": "Anto <anto@padi.io>",
+  "license": "(MIT OR Apache-2.0)",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "postinstall": "node scripts/patch-sdk.js",
+    "patch": "node scripts/patch-sdk.js",
+    "start": "electron .",
+    "test:connect": "node scripts/test-connect.js",
+    "test:widget": "node scripts/test-widget.js",
+    "test:spec": "node scripts/test-spec.js",
+    "dist": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "pack": "electron-builder --dir",
+    "test:ui": "node scripts/test-ui.js"
+  },
+  "dependencies": {
+    "arete-sdk": "^0.1.6",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.5",
+    "jsdom": "^25.0.0"
+  },
+  "build": {
+    "appId": "io.padi.arete.widget",
+    "productName": "Arete Widget",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "core/**/*",
+      "electron/**/*",
+      "renderer/**/*",
+      "widgets/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Arete Widget ${version}",
+      "artifactName": "Arete-Widget-${version}-${arch}.dmg",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 390,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Arete-Widget-Setup-${version}.exe"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "artifactName": "Arete-Widget-${version}-${arch}.AppImage"
+    }
+  }
+}

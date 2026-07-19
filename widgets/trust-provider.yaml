@@ -1,0 +1,54 @@
+# Trust Provider — server role of cp:padi.trust.basic ("Based on DTC Paper").
+# The registry (cp.padi.io/profiles/padi.trust.basic) defines:
+#   server (Trust Provider) writes: provSecurity/provPrivacy/provSafety/
+#     provReliability/provResiliency (levels 1-5) + provAttestation (URL)
+#   client (Trust Consumer) writes: the matching req* properties
+widget: trust-provider
+title: Trust Provider
+description: Offers trust levels (1-5) for security, privacy, safety, reliability and resiliency, with an attestation URL — and shows what a connected consumer is requesting.
+
+capabilities:
+  - profile: padi.trust.basic
+    role: provider
+
+view:
+  - type: label
+    text: — levels you offer —
+  - type: field
+    bind: provSecurity
+    caption: security offered (1-5)
+  - type: field
+    bind: provPrivacy
+    caption: privacy offered (1-5)
+  - type: field
+    bind: provSafety
+    caption: safety offered (1-5)
+  - type: field
+    bind: provReliability
+    caption: reliability offered (1-5)
+  - type: field
+    bind: provResiliency
+    caption: resiliency offered (1-5)
+  - type: field
+    bind: provAttestation
+    caption: attestation URL
+  - type: label
+    text: — requested by the consumer —
+  - type: value
+    bind: reqSecurity
+    caption: security requested
+  - type: value
+    bind: reqPrivacy
+    caption: privacy requested
+  - type: value
+    bind: reqSafety
+    caption: safety requested
+  - type: value
+    bind: reqReliability
+    caption: reliability requested
+  - type: value
+    bind: reqResiliency
+    caption: resiliency requested
+  - type: value
+    bind: reqAttestation
+    caption: consumer attestation
