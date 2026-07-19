@@ -78,8 +78,11 @@ the lesson: the contract itself tells you what can never be observed.
 
 **Net:** propagated properties behave exactly per spec (including the
 ping → echo round trip). The flag's only observable effect today is the
-bind-blocking side effect in act 2 — data-flow enforcement is absent.
-On such realms, "local" values are NOT actually private.
+bind-blocking side effect in act 2 — enforcement of the connection's
+contract surface is absent: peers are delivered values the CP declares
+connection-external. (Note the flag is about CONTRACT SCOPE, not
+confidentiality — capability properties are realm-visible in the namespace
+regardless.)
 
 **anto.aretehosting.com (chart arete 1.5.3), 2026-07-19:** IDENTICAL
 behavior to the test host. First run (rig with non-propagated init values)
