@@ -5,7 +5,7 @@
 // keeps living (receiving, auto-actualizing, reporting) even when its
 // faceplate window is closed. Faceplates are just views.
 
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -109,6 +109,60 @@ function createMainWindow() {
   mainWindow.on('closed', () => (mainWindow = null));
 }
 
+// ---- Faceplate window placement -------------------------------------------
+// Each instance REMEMBERS its window bounds (faceplate-bounds.json in
+// userData): move or resize a faceplate and it reopens exactly there, across
+// app restarts. First-time opens CASCADE from the main window instead of
+// stacking on the screen center.
+const fpBoundsFile = () => path.join(app.getPath('userData'), 'faceplate-bounds.json');
+function readFpBounds() {
+  try {
+    const j = JSON.parse(fs.readFileSync(fpBoundsFile(), 'utf8'));
+    return j && typeof j === 'object' ? j : {};
+  } catch (_) {
+    return {};
+  }
+}
+function writeFpBounds(map) {
+  try {
+    fs.writeFileSync(fpBoundsFile(), JSON.stringify(map, null, 2));
+  } catch (e) {
+    console.error('Failed to persist faceplate bounds', e);
+  }
+}
+
+function placeFaceplate(instanceId, width, height) {
+  const saved = readFpBounds()[instanceId];
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    // Clamp into the closest display's work area, so a monitor that has since
+    // been unplugged can't strand the window off-screen.
+    const wa = screen.getDisplayMatching(saved).workArea;
+    const w = Math.min(saved.width || width, wa.width);
+    const h = Math.min(saved.height || height, wa.height);
+    return {
+      x: Math.min(Math.max(saved.x, wa.x), wa.x + wa.width - w),
+      y: Math.min(Math.max(saved.y, wa.y), wa.y + wa.height - h),
+      width: w,
+      height: h,
+    };
+  }
+  // No memory yet: cascade. Start just right of the main window (or the work
+  // area's corner if there's no room) and step diagonally per open faceplate.
+  const wa = screen.getPrimaryDisplay().workArea;
+  const base = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : wa;
+  const startX = base.x + base.width + 16 + width <= wa.x + wa.width
+    ? base.x + base.width + 16
+    : wa.x + 24;
+  const startY = Math.max(base.y, wa.y);
+  const step = 34 * (faceplates.size % 10);
+  return {
+    x: Math.min(Math.max(startX + step, wa.x), wa.x + wa.width - width),
+    y: Math.min(Math.max(startY + step, wa.y), wa.y + wa.height - height),
+    width,
+    height,
+  };
+}
+
 function openFaceplate(instanceId) {
   const existing = faceplates.get(instanceId);
   if (existing && !existing.isDestroyed()) {
@@ -121,10 +175,10 @@ function openFaceplate(instanceId) {
   // big ones (trust profiles with a dozen fields) open tall enough to use.
   const model = manager.getModel(inst.widgetId);
   const items = model ? model.view.length : 4;
-  const height = Math.max(300, Math.min(760, 150 + items * 58));
+  const defaultHeight = Math.max(300, Math.min(760, 150 + items * 58));
+  const bounds = placeFaceplate(instanceId, 300, defaultHeight);
   const win = new BrowserWindow({
-    width: 300,
-    height,
+    ...bounds,
     minWidth: 220,
     minHeight: 260,
     title: inst.name,
@@ -137,6 +191,25 @@ function openFaceplate(instanceId) {
     },
   });
   win.loadFile(path.join(ROOT, 'renderer', 'faceplate.html'));
+
+  // Remember where the user puts it (debounced; final save on close).
+  let saveTimer = null;
+  const saveBounds = () => {
+    if (win.isDestroyed()) return;
+    const map = readFpBounds();
+    map[instanceId] = win.getBounds();
+    writeFpBounds(map);
+  };
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveBounds, 400);
+  };
+  win.on('move', scheduleSave);
+  win.on('resize', scheduleSave);
+  win.on('close', () => {
+    clearTimeout(saveTimer);
+    saveBounds();
+  });
   win.on('closed', () => faceplates.delete(instanceId));
   faceplates.set(instanceId, win);
 }
@@ -283,6 +356,11 @@ app.whenReady().then(async () => {
     const fp = faceplates.get(id);
     if (fp && !fp.isDestroyed()) fp.close();
     manager.removeInstance(id);
+    const map = readFpBounds(); // forget the removed widget's window spot too
+    if (map[id]) {
+      delete map[id];
+      writeFpBounds(map);
+    }
   });
   ipcMain.handle('widget:open', (_evt, id) => openFaceplate(id));
   ipcMain.handle('widget:action', (_evt, { id, property, value }) =>
