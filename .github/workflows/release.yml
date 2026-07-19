@@ -1,0 +1,41 @@
+# Build installers for macOS / Windows / Linux and attach them to a GitHub
+# Release. Triggered by pushing a version tag (v1.2.3) — or run manually from
+# the Actions tab (manual runs produce a draft release).
+#
+# npm ci runs the postinstall SDK patches, so CI builds carry the same
+# arete-sdk fixes (off-Pi system-id, ws keepalive, clean-close retry) as dev.
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac
+          - os: windows-latest
+            args: --win
+          - os: ubuntu-latest
+            args: --linux
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Build and publish installers
+        run: npx electron-builder ${{ matrix.args }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Builds are unsigned (same as local dev builds) — stop electron-builder
+          # from hunting for signing identities on the runners.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"

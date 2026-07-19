@@ -102,6 +102,14 @@
       ],
       "category": "Development",
       "artifactName": "Arete-Widget-${version}-${arch}.AppImage"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "project-arete",
+        "repo": "arete-widget",
+        "releaseType": "release"
+      }
+    ]
   }
 }
