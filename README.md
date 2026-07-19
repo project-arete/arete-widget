@@ -1,5 +1,12 @@
 # Arete Widget
 
+> **🖥️ Just want to install and use the app?**
+> **[Follow the step-by-step install guide →](INSTALL.md)** — direct download
+> links for **macOS**, **Windows**, and **Linux**, written for non-technical
+> users. Heads-up: the installers are **not signed**, so your computer will
+> show a one-time security warning; the guide walks you through it.
+
+
 Create **virtual widgets** from plain YAML files and let them live on a CNS/CP
 realm. Each widget declares Connection Profile capabilities (validated against
 the [cp.padi.io](https://cp.padi.io) registry — an unregistered CP is refused),
