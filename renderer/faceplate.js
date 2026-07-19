@@ -81,7 +81,10 @@ function renderStrip() {
     return b;
   };
   strip.appendChild(mk('all', `All · ${peers.length}`, 'aggregate view of every connection'));
-  for (const p of peers) strip.appendChild(mk(p.connId, p.system, `${p.system} · ${p.node} (${p.profile})`));
+  // Pill label = NODE name (the widget/peer itself) — system names are often
+  // identical across peers (e.g. many widgets under one system). Full detail
+  // stays in the tooltip.
+  for (const p of peers) strip.appendChild(mk(p.connId, p.node, `${p.system} · ${p.node} (${p.profile})`));
 }
 
 // Build the effective state for the current selection, and the mixed map for
