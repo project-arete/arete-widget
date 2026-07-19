@@ -6,7 +6,7 @@ steps.
 
 All downloads live on the
 **[latest release page](https://github.com/project-arete/arete-widget/releases/latest)**.
-The links below point at the current version (v0.1.1); if a newer version
+The links below point at the current version (v0.1.2); if a newer version
 exists, grab the matching file from that page instead.
 
 > ### ⚠️ Before you start: expect a security warning
@@ -27,8 +27,8 @@ says *Intel*, you have an **Intel Mac**.
 
 **2. Download the right file:**
 
-- Apple Silicon: [Arete-Widget-0.1.1-arm64.dmg](https://github.com/project-arete/arete-widget/releases/download/v0.1.1/Arete-Widget-0.1.1-arm64.dmg)
-- Intel: [Arete-Widget-0.1.1-x64.dmg](https://github.com/project-arete/arete-widget/releases/download/v0.1.1/Arete-Widget-0.1.1-x64.dmg)
+- Apple Silicon: [Arete-Widget-0.1.2-arm64.dmg](https://github.com/project-arete/arete-widget/releases/download/v0.1.2/Arete-Widget-0.1.2-arm64.dmg)
+- Intel: [Arete-Widget-0.1.2-x64.dmg](https://github.com/project-arete/arete-widget/releases/download/v0.1.2/Arete-Widget-0.1.2-x64.dmg)
 
 **3. Install.** Open the downloaded `.dmg` and drag **Arete Widget** onto the
 **Applications** folder shown next to it.
@@ -47,7 +47,7 @@ Control-click) Arete Widget → Open**, then click **Open** in the dialog.
 ## Windows
 
 **1. Download the installer:**
-[Arete-Widget-Setup-0.1.1.exe](https://github.com/project-arete/arete-widget/releases/download/v0.1.1/Arete-Widget-Setup-0.1.1.exe)
+[Arete-Widget-Setup-0.1.2.exe](https://github.com/project-arete/arete-widget/releases/download/v0.1.2/Arete-Widget-Setup-0.1.2.exe)
 
 **2. Run it.** Windows will likely show a blue **"Windows protected your
 PC"** SmartScreen box (that's the unsigned-app warning). Click **More info**,
@@ -62,7 +62,7 @@ then **Run anyway**.
 
 **AppImage (works on most distributions):**
 
-1. Download: [Arete-Widget-0.1.1-x86_64.AppImage](https://github.com/project-arete/arete-widget/releases/download/v0.1.1/Arete-Widget-0.1.1-x86_64.AppImage)
+1. Download: [Arete-Widget-0.1.2-x86_64.AppImage](https://github.com/project-arete/arete-widget/releases/download/v0.1.2/Arete-Widget-0.1.2-x86_64.AppImage)
 2. Make it runnable: right-click the file → **Properties → Permissions →
    allow executing as a program** (or in a terminal: `chmod +x Arete-Widget-*.AppImage`).
 3. Double-click it to run. No installation needed — the file *is* the app.
