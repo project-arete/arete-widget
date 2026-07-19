@@ -57,3 +57,24 @@ The app's validator refuses a widget that *reads* a peer-written property
 without the propagate flag — the value can never reach its connections, so
 the display would be forever blank (a "dead bind"). That refusal is part of
 the lesson: the contract itself tells you what can never be observed.
+
+## Findings so far (living record)
+
+**2026-07-19, dashboard.test.cns.dev (public test realm):** the propagate
+flag is NOT enforced. All six properties — including `draft` and `notes` —
+appear as connection properties, and post-bind writes to non-propagated
+properties flow to peers continuously (verified with sequential writes; not
+a bind-time copy). Propagated properties behave exactly as specified,
+including the ping → echo round trip. Conclusion: the *contract semantics*
+are as designed, but this orchestrator build propagates everything.
+Implication worth noting: on non-enforcing realms, "local" values are not
+actually private.
+
+Pending: the same experiment against other realms (e.g. an Arete Hosting
+orchestrator) to establish whether enforcement is a version/configuration
+matter or not yet implemented anywhere:
+
+```shell
+ARETE_HOST=<your>.aretehosting.com ARETE_USER=... ARETE_PASS=... \
+  ARETE_ALLOW_SELF_SIGNED=1 npm run test:propagate
+```
