@@ -11,20 +11,23 @@ never see it.
 | File | What it is |
 |---|---|
 | `cp-padi.test.propagate.json` | Draft definition of **cp:padi.test.propagate**, ready to register at [cp.padi.io](https://cp.padi.io) (registry JSON shape; flags encoded by key presence) |
-| `propagate-sender.yaml` | Provider widget: writes `sShared` (propagated), `sLocal` (not), bumps `sPing` |
-| `propagate-receiver.yaml` | Consumer widget: shows what arrives, auto-echoes `sPing` → `cPong`, keeps its own `cLocal` |
+| `propagate-sender.yaml` | Provider widget: posts `bulletin` (propagated), keeps `draft` (not), bumps `ping` |
+| `propagate-receiver.yaml` | Consumer widget: shows what arrives, auto-replies `ping` → `echo`, keeps private `notes` |
 | `../../scripts/test-propagate.js` | Headless experiment: writes both flavors on both sides, then inspects the raw key namespace and reports where every value did and did not land |
 
-The CP's six properties differ **only** in their flags:
+The CP's six properties differ **only** in their flags. Names carry the
+**purpose** (per registry naming guidance: no direction prefixes — the
+`server` flag is the authority on who writes; `padi.test.*` is the namespace
+for development/test profiles):
 
-| Property | Writer | Propagate | So… |
+| Property | Writer | Propagate | Purpose |
 |---|---|---|---|
-| `sShared` | provider | ✔ | receivers see it |
-| `sLocal` | provider | ✘ | never leaves the sender |
-| `sPing` | provider | ✔ | receivers auto-echo it |
-| `cShared` | consumer | ✔ | the sender sees it |
-| `cLocal` | consumer | ✘ | never leaves the receiver |
-| `cPong` | consumer | ✔ | the echo — proves the round trip |
+| `bulletin` | provider | ✔ | posted for everyone — consumers see it |
+| `draft` | provider | ✘ | stays on the provider's desk — never leaves |
+| `ping` | provider | ✔ | counter consumers auto-reply to |
+| `feedback` | consumer | ✔ | sent back — the provider sees it |
+| `notes` | consumer | ✘ | private — never leave the consumer |
+| `echo` | consumer | ✔ | the reply to ping — proves the round trip |
 
 ## Running the demo
 
@@ -36,19 +39,19 @@ The CP's six properties differ **only** in their flags:
    resolves.
 3. Add a **Propagate Sender** in a new context; add a **Propagate Receiver**
    joining it. Open both faceplates side by side.
-4. Type into `sShared` on the sender → appears on the receiver, with a flash.
-   Type into `sLocal` → nothing happens on the receiver, ever. Note the
-   dashed **local** chip the app puts on `sLocal` automatically — it read the
-   flag from the registry.
-5. Bump `sPing` → the receiver's rule echoes it to `cPong`, which propagates
+4. Type into `bulletin` on the sender → appears on the receiver, with a
+   flash. Type into `draft` → nothing happens on the receiver, ever. Note
+   the dashed **local** chip the app puts on `draft` automatically — it read
+   the flag from the registry.
+5. Bump `ping` → the receiver's rule replies on `echo`, which propagates
    back and lands on the sender. One counter, two propagated hops.
 6. Open **Arete Monitor → Connections** on the context: the connection
-   carries `sShared`, `cShared`, `sPing`, `cPong` — and never `sLocal` or
-   `cLocal`. Faceplates show the experience; the Monitor shows the wire.
+   carries `bulletin`, `feedback`, `ping`, `echo` — and never `draft` or
+   `notes`. Faceplates show the experience; the Monitor shows the wire.
 7. For the empirical record: `npm run test:propagate` prints a findings
    table asserting exactly where each value landed in the namespace.
 
-## Why the receiver has no `sLocal` display
+## Why the receiver has no `draft` display
 
 The app's validator refuses a widget that *reads* a peer-written property
 without the propagate flag — the value can never reach its connections, so

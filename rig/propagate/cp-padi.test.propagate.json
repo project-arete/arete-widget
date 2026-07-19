@@ -1,7 +1,7 @@
 {
   "name": "padi.test.propagate",
   "title": "Propagate test profile",
-  "comment": "A test/teaching profile that demonstrates the per-property propagate flag: writes to propagated properties are pushed to all active connections; non-propagated properties stay on the writing node's capability and are never visible to peers.",
+  "comment": "A development/test profile that demonstrates the per-property propagate flag: writes to propagated properties are pushed to all active connections; non-propagated properties stay on the writing node's capability and are never visible to peers.",
   "company": "Padi, Inc.",
   "website": "https://padi.io",
   "server": "Propagate Sender",
@@ -9,12 +9,12 @@
   "versions": [
     {
       "properties": [
-        { "name": "sShared", "description": "Provider-written, PROPAGATED - every connected receiver sees this value", "server": null, "propagate": null, "required": null },
-        { "name": "sLocal",  "description": "Provider-written, NOT propagated - stays on the provider's capability; receivers can never see it", "server": null },
-        { "name": "sPing",   "description": "Provider-written, PROPAGATED - a counter receivers auto-echo to cPong, proving the round trip", "server": null, "propagate": null },
-        { "name": "cShared", "description": "Consumer-written, PROPAGATED - the provider sees this value", "propagate": null },
-        { "name": "cLocal",  "description": "Consumer-written, NOT propagated - stays on the consumer's capability; the provider can never see it" },
-        { "name": "cPong",   "description": "Consumer-written, PROPAGATED - the echo of sPing", "propagate": null }
+        { "name": "bulletin", "description": "Posted by the provider and PROPAGATED - every connected consumer sees it", "server": null, "propagate": null, "required": null },
+        { "name": "draft",    "description": "Written by the provider but NOT propagated - it stays on the provider's capability; consumers can never see it", "server": null },
+        { "name": "ping",     "description": "A counter the provider bumps, PROPAGATED - consumers echo it back, proving the round trip", "server": null, "propagate": null },
+        { "name": "feedback", "description": "Written by the consumer and PROPAGATED - the provider sees it", "propagate": null },
+        { "name": "notes",    "description": "The consumer's private notes, NOT propagated - they stay on the consumer's capability; the provider can never see them" },
+        { "name": "echo",     "description": "The consumer's PROPAGATED echo of ping", "propagate": null }
       ]
     }
   ]

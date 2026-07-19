@@ -1,10 +1,11 @@
-# Propagate Sender — server role of cp:padi.test.propagate.
-# One propagated and one non-propagated property on each side, plus a
-# ping/pong pair — the faceplate makes the propagate flag's effect visible.
+# Propagate Sender — provider role of cp:padi.test.propagate.
+# Property names carry their PURPOSE; the registry's server/propagate flags
+# carry direction and reach. bulletin is posted to everyone; draft never
+# leaves this node; ping is echoed back by receivers.
 # NOTE: invalid until padi.test.propagate is registered at cp.padi.io (by design).
 widget: propagate-sender
 title: Propagate Sender
-description: Provider side of the propagate test rig - writes a propagated and a non-propagated property, pings receivers, and shows exactly what comes back (and what cannot).
+description: Provider side of the propagate test rig - posts a bulletin (propagated), keeps a draft (not propagated), pings receivers, and shows what comes back (and what cannot).
 icon: "📤"
 color: "#3ecf8e"
 
@@ -16,29 +17,29 @@ view:
   - type: label
     text: you write
   - type: field
-    bind: sShared
-    caption: sShared — propagated, receivers see this
+    bind: bulletin
+    caption: bulletin — propagated, receivers see this
   - type: field
-    bind: sLocal
-    caption: sLocal — NOT propagated, never leaves this node
+    bind: draft
+    caption: draft — NOT propagated, never leaves this node
   - type: stepper
-    bind: sPing
+    bind: ping
     min: 0
-    caption: sPing — receivers auto-echo to cPong
+    caption: ping — receivers auto-echo it
   - type: split
   - type: label
     text: back from receivers
   - type: value
-    bind: cShared
-    caption: cShared — propagated
+    bind: feedback
+    caption: feedback — propagated
   - type: value
-    bind: cPong
-    caption: cPong — the echo of sPing
+    bind: echo
+    caption: echo — of your ping
   - type: label
-    text: (receivers also write cLocal — no propagate flag, so it can never appear here)
+    text: (receivers also keep notes — no propagate flag, so they can never appear here)
 
 behavior:
   init:
-    sShared: hello
-    sLocal: this value never leaves the sender
-    sPing: "0"
+    bulletin: hello everyone
+    draft: this never leaves the sender
+    ping: "0"

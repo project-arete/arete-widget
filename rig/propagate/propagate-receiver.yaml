@@ -1,10 +1,10 @@
-# Propagate Receiver — client role of cp:padi.test.propagate.
-# Sees ONLY the propagated writes; auto-echoes sPing to cPong to prove the
-# round trip; keeps its own non-propagated local note.
+# Propagate Receiver — consumer role of cp:padi.test.propagate.
+# Sees ONLY the propagated writes; auto-echoes ping to prove the round trip;
+# keeps its own non-propagated private notes.
 # NOTE: invalid until padi.test.propagate is registered at cp.padi.io (by design).
 widget: propagate-receiver
 title: Propagate Receiver
-description: Consumer side of the propagate test rig - shows what arrives from the sender (only propagated properties can), echoes sPing automatically, and keeps a local-only note of its own.
+description: Consumer side of the propagate test rig - shows what arrives from the sender (only propagated properties can), echoes ping automatically, and keeps private notes of its own.
 icon: "📥"
 color: "#4c8bf5"
 
@@ -16,30 +16,30 @@ view:
   - type: label
     text: arriving from the sender
   - type: value
-    bind: sShared
-    caption: sShared — propagated
+    bind: bulletin
+    caption: bulletin — propagated
   - type: value
-    bind: sPing
-    caption: sPing
+    bind: ping
+    caption: ping
   - type: label
-    text: (the sender also writes sLocal — no propagate flag, so it never arrives; a bind on it would be refused as a dead read)
+    text: (the sender also keeps a draft — no propagate flag, so it never arrives; a bind on it would be refused as a dead read)
   - type: split
   - type: label
     text: you write
   - type: field
-    bind: cShared
-    caption: cShared — propagated, the sender sees this
+    bind: feedback
+    caption: feedback — propagated, the sender sees this
   - type: field
-    bind: cLocal
-    caption: cLocal — NOT propagated, never leaves this node
+    bind: notes
+    caption: notes — NOT propagated, never leave this node
   - type: value
-    bind: cPong
-    caption: cPong — your automatic echo
+    bind: echo
+    caption: echo — your automatic reply to ping
 
 behavior:
   init:
-    cShared: ready
-    cLocal: this value never leaves the receiver
+    feedback: ready
+    notes: these never leave the receiver
   rules:
-    - when: sPing
-      set: cPong
+    - when: ping
+      set: echo

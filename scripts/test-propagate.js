@@ -6,9 +6,9 @@
 // (consumer) in one context, write BOTH flavors of property on BOTH sides,
 // then inspect the raw key namespace and report where every value did — and
 // did not — land:
-//   propagated (sShared, cShared, sPing, cPong) -> must appear as CONNECTION
+//   propagated (bulletin, feedback, ping, echo) -> must appear as CONNECTION
 //     properties on both endpoints;
-//   non-propagated (sLocal, cLocal)             -> must exist ONLY under the
+//   non-propagated (draft, notes)             -> must exist ONLY under the
 //     writer's capability properties, and appear in NO connection anywhere.
 //
 // Skips cleanly (exit 0) while padi.test.propagate is not yet registered.
@@ -131,22 +131,22 @@ try {
   console.log('   bound ✔');
 
   console.log('5) Writing BOTH flavors on BOTH sides ...');
-  await manager.putProperty(tx.id, 'sShared', 'from-sender');
-  await manager.putProperty(tx.id, 'sLocal', 'sender-secret');
-  await manager.putProperty(rx.id, 'cShared', 'from-receiver');
-  await manager.putProperty(rx.id, 'cLocal', 'receiver-secret');
-  await manager.putProperty(tx.id, 'sPing', '7');
+  await manager.putProperty(tx.id, 'bulletin', 'from-sender');
+  await manager.putProperty(tx.id, 'draft', 'sender-secret');
+  await manager.putProperty(rx.id, 'feedback', 'from-receiver');
+  await manager.putProperty(rx.id, 'notes', 'receiver-secret');
+  await manager.putProperty(tx.id, 'ping', '7');
 
-  console.log('6) Waiting for propagated values (and the cPong echo) to land ...');
+  console.log('6) Waiting for propagated values (and the echo) to land ...');
   await waitFor('propagated values visible on the OTHER side + echo', () => {
     const a = manager.getInstance(tx.id);
     const b = manager.getInstance(rx.id);
     return (
-      b && b.state.sShared === 'from-sender' && b.state.sPing === '7' &&
-      a && a.state.cShared === 'from-receiver' && a.state.cPong === '7'
+      b && b.state.bulletin === 'from-sender' && b.state.ping === '7' &&
+      a && a.state.feedback === 'from-receiver' && a.state.echo === '7'
     );
   });
-  console.log('   propagated values arrived; sPing=7 echoed back as cPong=7 ✔');
+  console.log('   propagated values arrived; ping=7 echoed back as echo=7 ✔');
 
   console.log('7) Inspecting the RAW key namespace ...');
   await sleep(1500); // let any stragglers settle
@@ -162,15 +162,15 @@ try {
     if (!cond) code = 2;
   };
 
-  expect('sShared (propagated) present in connection properties', inConn('sShared').length >= 2);
-  expect('cShared (propagated) present in connection properties', inConn('cShared').length >= 2);
-  expect('sPing/cPong (propagated) present in connection properties', inConn('sPing').length >= 2 && inConn('cPong').length >= 2);
-  expect('sLocal (NOT propagated) present on the SENDER capability', capKey(tx, 'provider', 'sLocal') === 'sender-secret');
-  expect('cLocal (NOT propagated) present on the RECEIVER capability', capKey(rx, 'consumer', 'cLocal') === 'receiver-secret');
-  expect('sLocal appears in NO connection anywhere', inConn('sLocal').length === 0);
-  expect('cLocal appears in NO connection anywhere', inConn('cLocal').length === 0);
-  expect("receiver's merged state never saw sLocal", manager.getInstance(rx.id).state.sLocal === undefined);
-  expect("sender's merged state never saw cLocal", manager.getInstance(tx.id).state.cLocal === undefined);
+  expect('bulletin (propagated) present in connection properties', inConn('bulletin').length >= 2);
+  expect('feedback (propagated) present in connection properties', inConn('feedback').length >= 2);
+  expect('ping/echo (propagated) present in connection properties', inConn('ping').length >= 2 && inConn('echo').length >= 2);
+  expect('draft (NOT propagated) present on the SENDER capability', capKey(tx, 'provider', 'draft') === 'sender-secret');
+  expect('notes (NOT propagated) present on the RECEIVER capability', capKey(rx, 'consumer', 'notes') === 'receiver-secret');
+  expect('draft appears in NO connection anywhere', inConn('draft').length === 0);
+  expect('notes appears in NO connection anywhere', inConn('notes').length === 0);
+  expect("receiver's merged state never saw draft", manager.getInstance(rx.id).state.draft === undefined);
+  expect("sender's merged state never saw notes", manager.getInstance(tx.id).state.notes === undefined);
 
   console.log('\n===== PROPAGATE EXPERIMENT FINDINGS =====');
   for (const f of findings) console.log('  ' + f);
