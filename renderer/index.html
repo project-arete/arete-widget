@@ -14,7 +14,7 @@
         <img class="logo" src="logo.png" alt="Arete" />
         <div>
           <h1>Arete Widget</h1>
-          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="uiVersion">UI v20</span></p>
+          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="uiVersion">UI v21</span></p>
         </div>
       </div>
       <div class="realm-ind" id="realmInd" hidden>
@@ -46,17 +46,7 @@
             <h2>Your widgets</h2>
             <span class="muted-note" id="systemNameNote"></span>
           </div>
-          <div id="instanceList" class="instance-list"></div>
-          <p class="empty" id="instancesEmpty">No widgets yet. Add one from the library below.</p>
-        </section>
-
-        <section class="card">
-          <div class="card-head">
-            <h2>Widget library</h2>
-            <button type="button" id="reloadDefsBtn" class="ghost" title="Rescan the widget definition folders">Reload</button>
-          </div>
-          <div id="defList" class="def-list"></div>
-          <p class="muted-note" id="userDirNote"></p>
+          <div id="tileGrid" class="tile-grid"></div>
         </section>
       </div>
 
@@ -148,6 +138,21 @@
         </section>
       </div>
     </main>
+
+    <!-- ====================== ADD / EDIT WIDGET DIALOG ====================== -->
+    <div class="overlay" id="dlgOverlay" hidden>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+        <div class="dlg-head">
+          <h2 id="dlgTitle">Add a widget</h2>
+          <button type="button" class="ghost dlg-close" id="dlgClose" aria-label="Close">✕</button>
+        </div>
+        <div id="dlgBody" class="dlg-body"></div>
+        <div class="dlg-foot" id="dlgFoot">
+          <button type="button" id="reloadDefsBtn" class="ghost" title="Rescan the widget folders and refresh the online library">Reload library</button>
+          <p class="muted-note" id="userDirNote"></p>
+        </div>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

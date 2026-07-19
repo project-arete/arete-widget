@@ -1,5 +1,5 @@
 // app.js — MAIN window UI. Talks to main ONLY through window.arete (preload).
-// Three tabs: Widgets (library + instances), Status (state + log), Config.
+// Three tabs: Widgets (tile grid + add/edit dialog), Status (state + log), Config.
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -21,17 +21,18 @@ const els = {
   rememberNote: $('rememberNote'), autoConnect: $('autoConnect'),
   connectBtn: $('connectBtn'), disconnectBtn: $('disconnectBtn'),
   clearLogBtn: $('clearLogBtn'), cpLink: $('cpLink'),
-  defList: $('defList'), reloadDefsBtn: $('reloadDefsBtn'), userDirNote: $('userDirNote'),
+  reloadDefsBtn: $('reloadDefsBtn'), userDirNote: $('userDirNote'),
   libraryUrl: $('libraryUrl'),
-  instanceList: $('instanceList'), instancesEmpty: $('instancesEmpty'),
+  tileGrid: $('tileGrid'),
   systemNameNote: $('systemNameNote'),
+  dlgOverlay: $('dlgOverlay'), dlgTitle: $('dlgTitle'), dlgBody: $('dlgBody'),
+  dlgFoot: $('dlgFoot'), dlgClose: $('dlgClose'),
 };
 
 let keys = {};
 let defs = [];
 let instances = [];
 let connected = false;
-let openAddForm = null; // widgetId whose add-form is open
 
 // ---- Tabs ----
 function activateTab(panelId) {
@@ -76,13 +77,12 @@ function renderStatus(st) {
   els.s.error.textContent = st.lastError || '—';
   els.connectBtn.disabled = connected || state === 'connecting';
   els.disconnectBtn.disabled = state === 'disconnected';
-  // Only re-render the widget panels when connectedness actually CHANGES —
-  // status arrives every 2s, and a blind re-render would rebuild the open
-  // add-form mid-interaction (resetting the context dropdown + typed name).
+  // Only re-render on connectedness TRANSITIONS — status arrives every 2s and
+  // a blind re-render would rebuild the open dialog mid-interaction.
   if (connected !== lastConnected) {
     lastConnected = connected;
-    renderInstances();
-    renderDefs();
+    renderTiles();
+    if (dlg) renderDialog(true); // snapshot/restore preserves everything typed
   }
 }
 
@@ -120,13 +120,16 @@ function realmContexts() {
 }
 
 // Only the contexts where the broker could bind THIS widget: at least one
-// declaration of the opposite role for one of the widget's profiles.
-function contextsMatching(d) {
+// declaration of the opposite role for one of the widget's profiles. When
+// editing, the instance's CURRENT context is excluded — staying there is the
+// "Keep current context" choice, not a join.
+function contextsMatching(d, excludeCtxId) {
   const wanted = ((d && d.capabilities) || []).map((c) => ({
     profile: c.profile,
     partner: c.role === 'provider' ? 'consumer' : 'provider',
   }));
   return realmContexts()
+    .filter((c) => c.id !== excludeCtxId)
     .map((c) => {
       const partners = [];
       for (const w of wanted) {
@@ -138,72 +141,57 @@ function contextsMatching(d) {
     .filter((c) => c.partnersText);
 }
 
-// ---- Widget library ----
-// Snapshot/restore the open add-form across re-renders so nothing the user
-// typed or selected is ever lost when the list legitimately needs rebuilding.
-function snapshotAddForm() {
-  if (!openAddForm) return null;
-  const form = els.defList.querySelector(`[data-form="${CSS.escape(openAddForm)}"]`);
-  if (!form) return null;
-  const q = (id) => form.querySelector('#' + id);
-  return {
-    name: q('af-name') ? q('af-name').value : null,
-    join: q('af-ctx-join') ? q('af-ctx-join').checked : false,
-    ctxName: q('af-ctxname') ? q('af-ctxname').value : null,
-    ctxSel: q('af-ctxsel') ? q('af-ctxsel').value : null,
-  };
+// =========================================================================
+// The add / edit dialog
+// dlg is the ONLY dialog state: null (closed) or
+//   { mode: 'create'|'edit', step: 1|2, defId, instId, filter }
+// Step 1 = filterable widget picker (create mode only); step 2 = config form.
+// =========================================================================
+let dlg = null;
+let pendingCtxId = null; // context id minted for "New context" — survives re-renders
+
+function newCtxId() {
+  const B = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const a = new Uint8Array(22);
+  crypto.getRandomValues(a);
+  return [...a].map((b) => B[b % 62]).join('');
 }
 
-function restoreAddForm(snap) {
-  if (!snap || !openAddForm) return;
-  const form = els.defList.querySelector(`[data-form="${CSS.escape(openAddForm)}"]`);
-  if (!form) return;
-  const q = (id) => form.querySelector('#' + id);
-  if (snap.name != null && q('af-name')) q('af-name').value = snap.name;
-  if (snap.ctxName != null && q('af-ctxname')) q('af-ctxname').value = snap.ctxName;
-  if (snap.join && q('af-ctx-join') && !q('af-ctx-join').disabled) {
-    q('af-ctx-join').checked = true;
-    q('af-ctx-new').checked = false;
-  }
-  const sel = q('af-ctxsel');
-  if (sel && snap.ctxSel != null && [...sel.options].some((o) => o.value === snap.ctxSel)) {
-    sel.value = snap.ctxSel;
-  }
-  syncAddFormRows();
+function openCreateDialog() {
+  dlg = { mode: 'create', step: 1, defId: null, instId: null, filter: '' };
+  pendingCtxId = null;
+  renderDialog();
+  const search = els.dlgBody.querySelector('#dlgSearch');
+  if (search) search.focus();
 }
 
-// Update ONLY the context <select> options in place (called on live keys
-// updates) — never rebuilds the form, always preserves the current selection.
-function refreshCtxOptions() {
-  const sel = els.defList.querySelector('#af-ctxsel');
-  if (!sel) return;
-  const cur = sel.value;
-  const d = defs.find((x) => x.id === openAddForm);
-  const html = contextsMatching(d)
-    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${esc(c.partnersText)})</option>`)
-    .join('');
-  if (sel.dataset.rendered === html) return; // nothing changed — don't touch it
-  sel.innerHTML = html;
-  sel.dataset.rendered = html;
-  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
-  const joinRadio = els.defList.querySelector('#af-ctx-join');
-  if (joinRadio) {
-    joinRadio.disabled = sel.options.length === 0;
-    if (joinRadio.disabled && joinRadio.checked) {
-      // The last matching context vanished mid-form — fall back to New.
-      joinRadio.checked = false;
-      els.defList.querySelector('#af-ctx-new').checked = true;
-      syncAddFormRows();
-    }
-  }
-  const hint = els.defList.querySelector('#af-join-hint');
-  if (hint) hint.hidden = sel.options.length > 0;
-  updateJoinInfo(); // the described context may have gained declarations/names
+function openEditDialog(instId) {
+  const inst = instances.find((i) => i.id === instId);
+  if (!inst) return;
+  dlg = { mode: 'edit', step: 2, defId: inst.widgetId, instId, filter: '' };
+  pendingCtxId = newCtxId(); // ready in case they pick "New context"
+  renderDialog();
 }
 
-function renderDefs() {
-  const snap = snapshotAddForm();
-  const cards = defs.map((d) => {
+function closeDialog() {
+  dlg = null;
+  pendingCtxId = null;
+  els.dlgOverlay.hidden = true;
+}
+
+function defMatches(d, needle) {
+  if (!needle) return true;
+  const hay = [d.id, d.title, d.description, ...d.capabilities.flatMap((c) => [c.profile, c.role])]
+    .join(' ')
+    .toLowerCase();
+  return needle.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+}
+
+function renderPickList() {
+  const list = els.dlgBody.querySelector('#dlgPickList');
+  if (!list || !dlg) return;
+  const matching = defs.filter((d) => defMatches(d, dlg.filter));
+  list.innerHTML = matching.map((d) => {
     const caps = d.capabilities
       .map((c) => `<span class="cap-chip ${c.role}">${esc(c.role)} of ${esc(c.profile)}</span>`)
       .join(' ');
@@ -212,124 +200,179 @@ function renderDefs() {
       : '';
     const badge = src + (d.ok
       ? (d.hasBehavior ? ' <span class="chip auto" title="has auto-actualize rules">auto</span>' : '')
-      : ' <span class="chip bad" title="' + esc(d.errors.join(' ')) + '">invalid</span>');
+      : ' <span class="chip bad">invalid</span>');
     const err = d.ok ? '' : `<div class="def-error">${esc(d.errors[0] || 'Invalid definition.')}</div>`;
-    const addForm = openAddForm === d.id ? renderAddForm(d) : '';
-    return `<div class="def-card ${d.ok ? '' : 'invalid'}" data-id="${esc(d.id)}">
-      <div class="def-head">
-        <div>
-          <div class="def-title">${d.icon ? esc(d.icon) + ' ' : ''}${esc(d.title)} ${badge}</div>
-          <div class="def-desc">${esc(d.description)}</div>
-          <div class="def-caps">${caps}</div>
-        </div>
-        <button type="button" class="primary add-btn" data-add="${esc(d.id)}" ${d.ok ? '' : 'disabled'}>Add</button>
+    return `<div class="pick-row ${d.ok ? '' : 'invalid'}" ${d.ok ? `data-pick="${esc(d.id)}" role="button" tabindex="0"` : ''}>
+      <span class="pick-icon">${esc(d.icon || '▦')}</span>
+      <div class="pick-main">
+        <div class="def-title">${esc(d.title)} ${badge}</div>
+        <div class="def-desc">${esc(d.description)}</div>
+        <div class="def-caps">${caps}</div>
+        ${err}
       </div>
-      ${err}${addForm}
     </div>`;
-  }).join('');
-  els.defList.innerHTML = cards || '<p class="empty">No widget definitions found.</p>';
-
-  if (openAddForm) restoreAddForm(snap);
+  }).join('') || `<p class="empty">No widget matches “${esc(dlg.filter)}”.</p>`;
 }
 
-// ---- Event delegation for the widget panels ----
-// Wired ONCE on the stable containers, so controls keep working no matter how
-// often the innerHTML inside them is re-rendered. (Per-element listeners were
-// fragile: any rebuild silently produced dead radios/dropdowns.)
-els.defList.addEventListener('click', (e) => {
-  const add = e.target.closest('[data-add]');
-  if (add) {
-    openAddForm = openAddForm === add.dataset.add ? null : add.dataset.add;
-    pendingCtxId = openAddForm ? newCtxId() : null; // mint (or drop) the would-be context id
-    renderDefs();
-    return;
-  }
-  if (e.target.closest('#af-create')) createFromForm();
-});
-els.defList.addEventListener('change', (e) => {
-  const id = e.target && e.target.id;
-  if (id === 'af-ctx-new' || id === 'af-ctx-join') syncAddFormRows();
-  else if (id === 'af-ctxsel') updateJoinInfo();
-});
-els.instanceList.addEventListener('click', (e) => {
-  const open = e.target.closest('[data-open]');
-  if (open) {
-    window.arete.widgetOpen(open.dataset.open);
-    return;
-  }
-  const rm = e.target.closest('[data-remove]');
-  if (rm) {
-    const id = rm.dataset.remove;
-    if (removeArmed === id) {
-      removeArmed = null;
-      window.arete.widgetRemove(id);
-    } else {
-      removeArmed = id;
-      renderInstances();
-      setTimeout(() => {
-        if (removeArmed === id) { removeArmed = null; renderInstances(); }
-      }, 3000);
-    }
-  }
-});
-
-// The context ID minted for "New context" — generated once when the form
-// opens (survives re-renders) so what you see is exactly what gets created.
-let pendingCtxId = null;
-function newCtxId() {
-  const B = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const a = new Uint8Array(22);
-  crypto.getRandomValues(a);
-  return [...a].map((b) => B[b % 62]).join('');
+// Snapshot/restore the config form across re-renders so nothing the user
+// typed or selected is ever lost when the dialog legitimately needs rebuilding.
+function snapshotForm() {
+  if (!dlg || dlg.step !== 2) return null;
+  const q = (id) => els.dlgBody.querySelector('#' + id);
+  const radio = ['af-ctx-keep', 'af-ctx-new', 'af-ctx-join'].find((r) => q(r) && q(r).checked);
+  return {
+    name: q('af-name') ? q('af-name').value : null,
+    radio,
+    ctxName: q('af-ctxname') ? q('af-ctxname').value : null,
+    ctxSel: q('af-ctxsel') ? q('af-ctxsel').value : null,
+  };
 }
 
-function renderAddForm(d) {
-  const ctxs = contextsMatching(d);
+function restoreForm(snap) {
+  if (!snap || !dlg || dlg.step !== 2) return;
+  const q = (id) => els.dlgBody.querySelector('#' + id);
+  if (snap.name != null && q('af-name')) q('af-name').value = snap.name;
+  if (snap.ctxName != null && q('af-ctxname')) q('af-ctxname').value = snap.ctxName;
+  if (snap.radio && q(snap.radio) && !q(snap.radio).disabled) {
+    ['af-ctx-keep', 'af-ctx-new', 'af-ctx-join'].forEach((r) => { if (q(r)) q(r).checked = r === snap.radio; });
+  }
+  const sel = q('af-ctxsel');
+  if (sel && snap.ctxSel != null && [...sel.options].some((o) => o.value === snap.ctxSel)) {
+    sel.value = snap.ctxSel;
+  }
+  syncFormRows();
+}
+
+function renderDialog(preserve = false) {
+  if (!dlg) return;
+  const snap = preserve ? snapshotForm() : null;
+  els.dlgOverlay.hidden = false;
+  els.dlgFoot.hidden = dlg.step !== 1;
+
+  if (dlg.step === 1) {
+    els.dlgTitle.textContent = 'Add a widget';
+    els.dlgBody.innerHTML = `
+      <label class="dlg-search-row">Find a widget
+        <input type="search" id="dlgSearch" placeholder="type to filter — e.g. “light”" autocomplete="off" value="${esc(dlg.filter)}" />
+      </label>
+      <div id="dlgPickList" class="pick-list"></div>`;
+    renderPickList();
+    return;
+  }
+
+  // ---- step 2: configuration ----
+  const d = defs.find((x) => x.id === dlg.defId);
+  const inst = dlg.mode === 'edit' ? instances.find((i) => i.id === dlg.instId) : null;
+  if (!d || (dlg.mode === 'edit' && !inst)) { closeDialog(); return; }
+  els.dlgTitle.textContent = dlg.mode === 'edit' ? 'Edit widget' : 'Add a widget';
+  if (dlg.mode === 'create' && !pendingCtxId) pendingCtxId = newCtxId();
+
+  const caps = d.capabilities
+    .map((c) => `<span class="cap-chip ${c.role}">${esc(c.role)} of ${esc(c.profile)}</span>`)
+    .join(' ');
+  const summary = `<div class="dlg-chosen">
+    <span class="pick-icon">${esc(d.icon || '▦')}</span>
+    <div class="pick-main">
+      <div class="def-title">${esc(d.title)}</div>
+      <div class="def-caps">${caps}</div>
+    </div>
+    ${dlg.mode === 'create'
+      ? '<button type="button" class="ghost" data-back>Change</button>'
+      : '<span class="muted-note" title="A different widget type is a different contract — create a new widget instead.">type is fixed</span>'}
+  </div>`;
+
+  const ctxs = contextsMatching(d, inst ? inst.contextId : undefined);
   const opts = ctxs
     .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${esc(c.partnersText)})</option>`)
     .join('');
   const joinDisabled = ctxs.length ? '' : 'disabled';
-  return `<div class="add-form" data-form="${esc(d.id)}">
-    <label>Name <input type="text" id="af-name" value="${esc(d.title)}" autocomplete="off" /></label>
+
+  const keepChoice = dlg.mode === 'edit'
+    ? `<label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-keep" checked /> <span>Keep current context</span></label>`
+    : '';
+  const keepInfo = dlg.mode === 'edit'
+    ? `<div id="af-ctxinfo-keep" class="ctx-info">Stays in <strong>${esc(inst.contextName)}</strong> <span class="mono">${esc(inst.contextId)}</span> — existing bindings are untouched. You can still rename the context above.</div>`
+    : '';
+
+  els.dlgBody.innerHTML = `${summary}
+    <label>Name <input type="text" id="af-name" value="${esc(inst ? inst.name : d.title)}" autocomplete="off" /></label>
     <div class="ctx-choice">
-      <label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-new" checked /> <span>New context</span></label>
+      ${keepChoice}
+      <label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-new" ${dlg.mode === 'edit' ? '' : 'checked'} /> <span>New context</span></label>
       <label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-join" ${joinDisabled} /> <span>Join existing</span></label>
     </div>
     <div id="af-join-hint" class="ctx-info" ${joinDisabled ? '' : 'hidden'}>No context in the realm has a matching partner for this widget${connected ? '' : ' (not connected)'} — create a new context and let a partner join you instead.</div>
-    <label id="af-ctxname-row">Context name <input type="text" id="af-ctxname" value="${esc(d.title)}" autocomplete="off" /></label>
-    <div id="af-ctxinfo-new" class="ctx-info">Creates a new matching space with id <span class="mono">${esc(pendingCtxId || '')}</span>.
-      Nothing else is in it yet — the widget will show <em>awaiting broker</em> until something joins this context.</div>
+    <label id="af-ctxname-row">Context name <input type="text" id="af-ctxname" value="${esc(inst ? inst.contextName : d.title)}" autocomplete="off" /></label>
+    ${keepInfo}
+    <div id="af-ctxinfo-new" class="ctx-info" ${dlg.mode === 'edit' ? 'hidden' : ''}>Creates a new matching space with id <span class="mono">${esc(pendingCtxId || '')}</span>.
+      Nothing else is in it yet — the widget will show <em>awaiting broker</em> until something joins this context.${dlg.mode === 'edit' ? ' The old context registration remains on the realm until cleaned up there.' : ''}</div>
     <label id="af-ctxsel-row" hidden>Context <select id="af-ctxsel">${opts}</select></label>
     <div id="af-ctxinfo-join" class="ctx-info" hidden></div>
     <div class="actions">
-      <button type="button" class="primary" id="af-create" ${connected ? '' : 'disabled'}>Create widget</button>
-      <span class="muted-note">${connected ? 'Registers a Node under this app’s System.' : 'Connect first (Config tab).'}</span>
-    </div>
-  </div>`;
+      <button type="button" class="primary" id="af-create" ${dlg.mode === 'edit' || connected ? '' : 'disabled'}>${dlg.mode === 'edit' ? 'Save changes' : 'Create widget'}</button>
+      <span class="muted-note">${dlg.mode === 'edit'
+        ? (connected ? 'Applies immediately on the realm.' : 'Saved locally — applies when you reconnect.')
+        : (connected ? 'Registers a Node under this app’s System.' : 'Connect first (Config tab).')}</span>
+    </div>`;
+  if (snap) restoreForm(snap); else syncFormRows();
 }
 
-// Toggle the New/Join rows to match the radio state (top-level so restore and
-// live refresh can reuse it).
-function syncAddFormRows() {
-  const q = (id) => els.defList.querySelector('#' + id);
+// Toggle the context rows to match the radio state.
+function syncFormRows() {
+  const q = (id) => els.dlgBody.querySelector('#' + id);
   const radioNew = q('af-ctx-new');
   if (!radioNew) return;
+  const keeping = q('af-ctx-keep') ? q('af-ctx-keep').checked : false;
   const joining = q('af-ctx-join').checked;
   q('af-ctxname-row').hidden = joining;
-  q('af-ctxinfo-new').hidden = joining;
+  if (q('af-ctxinfo-keep')) q('af-ctxinfo-keep').hidden = !keeping;
+  q('af-ctxinfo-new').hidden = joining || keeping;
   q('af-ctxsel-row').hidden = !joining;
   q('af-ctxinfo-join').hidden = !joining;
   if (joining) updateJoinInfo();
 }
 
+// Update ONLY the context <select> options in place (called on live keys
+// updates) — never rebuilds the form, always preserves the current selection.
+function refreshCtxOptions() {
+  if (!dlg || dlg.step !== 2) return;
+  const sel = els.dlgBody.querySelector('#af-ctxsel');
+  if (!sel) return;
+  const cur = sel.value;
+  const d = defs.find((x) => x.id === dlg.defId);
+  const inst = dlg.mode === 'edit' ? instances.find((i) => i.id === dlg.instId) : null;
+  const html = contextsMatching(d, inst ? inst.contextId : undefined)
+    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${esc(c.partnersText)})</option>`)
+    .join('');
+  if (sel.dataset.rendered === html) return; // nothing changed — don't touch it
+  sel.innerHTML = html;
+  sel.dataset.rendered = html;
+  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  const joinRadio = els.dlgBody.querySelector('#af-ctx-join');
+  if (joinRadio) {
+    joinRadio.disabled = sel.options.length === 0;
+    if (joinRadio.disabled && joinRadio.checked) {
+      // The last matching context vanished mid-form — fall back.
+      joinRadio.checked = false;
+      const fallback = els.dlgBody.querySelector('#af-ctx-keep') || els.dlgBody.querySelector('#af-ctx-new');
+      fallback.checked = true;
+      syncFormRows();
+    }
+  }
+  const hint = els.dlgBody.querySelector('#af-join-hint');
+  if (hint) hint.hidden = sel.options.length > 0;
+  updateJoinInfo(); // the described context may have gained declarations/names
+}
+
 // Describe the currently selected existing context: full id, how many
 // declarations already live there, and the other names systems use for it.
 function updateJoinInfo() {
-  const sel = els.defList.querySelector('#af-ctxsel');
-  const info = els.defList.querySelector('#af-ctxinfo-join');
-  if (!sel || !info) return;
-  const d = defs.find((x) => x.id === openAddForm);
-  const c = contextsMatching(d).find((x) => x.id === sel.value);
+  const sel = els.dlgBody.querySelector('#af-ctxsel');
+  const info = els.dlgBody.querySelector('#af-ctxinfo-join');
+  if (!sel || !info || !dlg) return;
+  const d = defs.find((x) => x.id === dlg.defId);
+  const inst = dlg.mode === 'edit' ? instances.find((i) => i.id === dlg.instId) : null;
+  const c = contextsMatching(d, inst ? inst.contextId : undefined).find((x) => x.id === sel.value);
   if (!c) { info.textContent = ''; return; }
   const also = c.also.length ? ` · also known as: ${c.also.map(esc).join(', ')}` : '';
   info.innerHTML = `Joins <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id)}</span> —
@@ -337,72 +380,188 @@ function updateJoinInfo() {
     Your system adopts the name “${esc(c.name)}”.${also}`;
 }
 
-async function createFromForm() {
-  const d = defs.find((x) => x.id === openAddForm);
-  const form = els.defList.querySelector('.add-form');
-  if (!d || !form) return;
-  const q = (id) => form.querySelector('#' + id);
+async function submitDialog() {
+  if (!dlg || dlg.step !== 2) return;
+  const q = (id) => els.dlgBody.querySelector('#' + id);
   const name = q('af-name').value.trim();
   if (!name) return;
-  const spec = { widgetId: d.id, name };
+  const btn = q('af-create');
+
+  const spec = { name };
+  const keeping = q('af-ctx-keep') && q('af-ctx-keep').checked;
   if (q('af-ctx-join').checked) {
     const sel = q('af-ctxsel');
     const opt = sel.options[sel.selectedIndex];
     if (!opt) return;
     spec.contextId = opt.value;
     spec.contextName = opt.dataset.name || name; // adopt the existing name
+  } else if (keeping) {
+    const inst = instances.find((i) => i.id === dlg.instId);
+    spec.contextId = inst.contextId;
+    spec.contextName = q('af-ctxname').value.trim() || inst.contextName;
   } else {
     spec.contextId = pendingCtxId || undefined; // exactly the id shown
     spec.contextName = q('af-ctxname').value.trim() || name;
   }
-  q('af-create').disabled = true;
+
+  btn.disabled = true;
   try {
-    const inst = await window.arete.widgetAdd(spec);
-    openAddForm = null;
-    pendingCtxId = null;
-    renderDefs();
-    if (inst) window.arete.widgetOpen(inst.id);
+    if (dlg.mode === 'edit') {
+      spec.id = dlg.instId;
+      await window.arete.widgetUpdate(spec);
+      closeDialog();
+    } else {
+      spec.widgetId = dlg.defId;
+      const inst = await window.arete.widgetAdd(spec);
+      closeDialog();
+      if (inst) window.arete.widgetOpen(inst.id);
+    }
   } catch (err) {
     logLine({ level: 'error', message: String(err.message || err) });
-    const btn = els.defList.querySelector('#af-create');
-    if (btn) btn.disabled = false;
+    if (els.dlgBody.contains(btn)) btn.disabled = false;
   }
 }
 
-// ---- Instances ----
+// ---- dialog events (delegated on stable containers) ----
+els.dlgClose.addEventListener('click', closeDialog);
+els.dlgOverlay.addEventListener('click', (e) => { if (e.target === els.dlgOverlay) closeDialog(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && dlg) closeDialog(); });
+
+els.dlgBody.addEventListener('click', (e) => {
+  const pick = e.target.closest('[data-pick]');
+  if (pick && dlg && dlg.step === 1) {
+    dlg.defId = pick.dataset.pick;
+    dlg.step = 2;
+    pendingCtxId = newCtxId();
+    renderDialog();
+    return;
+  }
+  if (e.target.closest('[data-back]') && dlg && dlg.mode === 'create') {
+    dlg.step = 1;
+    pendingCtxId = null;
+    renderDialog();
+    const search = els.dlgBody.querySelector('#dlgSearch');
+    if (search) search.focus();
+    return;
+  }
+  if (e.target.closest('#af-create')) submitDialog();
+});
+els.dlgBody.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.closest('[data-pick]')) e.target.closest('[data-pick]').click();
+});
+els.dlgBody.addEventListener('input', (e) => {
+  if (e.target.id === 'dlgSearch' && dlg) {
+    dlg.filter = e.target.value;
+    renderPickList(); // ONLY the list — the input keeps focus and its value
+  }
+});
+els.dlgBody.addEventListener('change', (e) => {
+  const id = e.target && e.target.id;
+  if (id === 'af-ctx-new' || id === 'af-ctx-join' || id === 'af-ctx-keep') syncFormRows();
+  else if (id === 'af-ctxsel') updateJoinInfo();
+});
+
+// =========================================================================
+// The tile grid — the home page. One tile per widget + a big “+”.
+// Tiles hold no typed user state, so re-rendering is always safe: the ⋯ menu
+// and armed-remove states are part of the render.
+// =========================================================================
+let menuFor = null;     // instance id whose ⋯ menu is open
 let removeArmed = null; // instance id armed for removal
-function renderInstances() {
-  els.instancesEmpty.hidden = instances.length > 0;
+
+function renderTiles() {
   els.s.attached.textContent = `${instances.filter((i) => i.attached).length} / ${instances.length}`;
-  els.instanceList.innerHTML = instances.map((i) => {
+  const tiles = instances.map((i) => {
+    const def = defs.find((d) => d.id === i.widgetId);
+    const icon = def && def.icon ? def.icon : '▦';
+    const accent = def && def.color ? ` style="--tile-accent:${esc(def.color)}"` : '';
     const chip = !i.attached
       ? '<span class="chip off">offline</span>'
       : i.connections > 0
         ? `<span class="chip ok">bound · ${i.connections}</span>`
         : '<span class="chip wait">awaiting broker</span>';
-    const stateBits = Object.entries(i.state || {})
+    const stateBits = Object.entries(i.state || {}).slice(0, 3)
       .map(([k, v]) => `<span class="kv"><span class="k">${esc(k)}</span>=<span class="v">${esc(v)}</span></span>`)
       .join(' ');
-    const peerNames = [...new Set((i.peers || []).map((p) => p.system))];
+    const peerNames = [...new Set((i.peers || []).map((p) => p.node))];
     const peerBit = peerNames.length
-      ? ` · ⇄ ${esc(peerNames.slice(0, 3).join(', '))}${peerNames.length > 3 ? '…' : ''}`
+      ? `<div class="tile-peers">⇄ ${esc(peerNames.slice(0, 3).join(', '))}${peerNames.length > 3 ? '…' : ''}</div>`
       : '';
-    const removeLabel = removeArmed === i.id ? 'Sure?' : 'Remove';
-    return `<div class="inst-row" data-id="${esc(i.id)}">
-      <div class="inst-main">
-        <div class="inst-name">${esc(i.name)} <span class="inst-widget">${esc(i.widgetTitle)}</span> ${chip}</div>
-        <div class="inst-sub">context <strong>${esc(i.contextName)}</strong> <span class="mono dim">${esc(i.contextId.slice(0, 10))}…</span>${peerBit}</div>
-        <div class="inst-state">${stateBits}</div>
+    const menu = menuFor === i.id
+      ? `<div class="tile-menu" data-menu-panel>
+          <button type="button" data-edit="${esc(i.id)}">Edit…</button>
+          <button type="button" class="danger" data-remove="${esc(i.id)}">${removeArmed === i.id ? 'Sure? Remove' : 'Remove'}</button>
+        </div>`
+      : '';
+    return `<div class="tile" data-open="${esc(i.id)}"${accent} role="button" tabindex="0" title="Open the faceplate">
+      <div class="tile-top">
+        <span class="tile-icon">${esc(icon)}</span>
+        <button type="button" class="ghost tile-more" data-menu="${esc(i.id)}" aria-label="Widget menu" title="Edit or remove">⋯</button>
+        ${menu}
       </div>
-      <div class="inst-actions">
-        <button type="button" data-open="${esc(i.id)}">Faceplate</button>
-        <button type="button" class="ghost danger" data-remove="${esc(i.id)}">${removeLabel}</button>
-      </div>
+      <div class="tile-name">${esc(i.name)}</div>
+      <div class="tile-sub">${esc(i.widgetTitle)} · ${esc(i.contextName)}</div>
+      <div class="tile-chip">${chip}</div>
+      <div class="tile-state">${stateBits}</div>
+      ${peerBit}
     </div>`;
   }).join('');
-
-  // (Open/Remove clicks are handled by the delegated listener on instanceList.)
+  els.tileGrid.innerHTML = tiles + `<button type="button" class="tile plus" data-plus title="Add a widget">
+      <span class="plus-sign">+</span><span class="plus-label">Add widget</span>
+    </button>`;
 }
+
+els.tileGrid.addEventListener('click', (e) => {
+  const menuBtn = e.target.closest('[data-menu]');
+  if (menuBtn) {
+    menuFor = menuFor === menuBtn.dataset.menu ? null : menuBtn.dataset.menu;
+    removeArmed = null;
+    renderTiles();
+    return;
+  }
+  const edit = e.target.closest('[data-edit]');
+  if (edit) {
+    menuFor = null;
+    renderTiles();
+    openEditDialog(edit.dataset.edit);
+    return;
+  }
+  const rm = e.target.closest('[data-remove]');
+  if (rm) {
+    const id = rm.dataset.remove;
+    if (removeArmed === id) {
+      removeArmed = null;
+      menuFor = null;
+      window.arete.widgetRemove(id);
+    } else {
+      removeArmed = id;
+      renderTiles();
+      setTimeout(() => {
+        if (removeArmed === id) { removeArmed = null; renderTiles(); }
+      }, 3000);
+    }
+    return;
+  }
+  if (e.target.closest('[data-plus]')) {
+    openCreateDialog();
+    return;
+  }
+  const tile = e.target.closest('.tile[data-open]');
+  if (tile) window.arete.widgetOpen(tile.dataset.open);
+});
+els.tileGrid.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.matches('.tile[data-open]')) {
+    window.arete.widgetOpen(e.target.dataset.open);
+  }
+});
+// Any click outside the open ⋯ menu closes it.
+document.addEventListener('click', (e) => {
+  if (menuFor && !e.target.closest('[data-menu],[data-menu-panel]')) {
+    menuFor = null;
+    removeArmed = null;
+    renderTiles();
+  }
+});
 
 // ---- Connect ----
 async function doConnect(auto) {
@@ -492,18 +651,21 @@ async function init() {
   window.arete.onLog(logLine);
   window.arete.onStatus(renderStatus);
   window.arete.onKeys((k) => { keys = k || {}; refreshCtxOptions(); });
-  window.arete.onWidgetDefs((list) => { defs = list || []; renderDefs(); });
-  window.arete.onWidgetInstances((list) => { instances = list || []; renderInstances(); });
+  window.arete.onWidgetDefs((list) => {
+    defs = list || [];
+    renderTiles(); // tile icons/colors come from the defs
+    if (dlg && dlg.step === 1) renderPickList();
+  });
+  window.arete.onWidgetInstances((list) => { instances = list || []; renderTiles(); });
   window.arete.onWidgetState(({ id, state, connections, peers }) => {
     const i = instances.find((x) => x.id === id);
-    if (i) { i.state = state; i.connections = connections; if (peers) i.peers = peers; renderInstances(); }
+    if (i) { i.state = state; i.connections = connections; if (peers) i.peers = peers; renderTiles(); }
   });
 
   defs = await window.arete.widgetDefs();
   instances = await window.arete.widgetInstances();
   keys = await window.arete.getKeys();
-  renderDefs();
-  renderInstances();
+  renderTiles();
   renderStatus(await window.arete.getStatus());
   logLine({ level: 'info', message: 'Ready.' });
 

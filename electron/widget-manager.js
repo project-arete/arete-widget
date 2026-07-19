@@ -210,6 +210,7 @@ export class WidgetManager extends EventEmitter {
       title: d.title,
       description: d.description,
       icon: d.model ? d.model.icon || '' : '',
+      color: d.model ? d.model.color || '' : '',
       capabilities: d.model ? d.model.capabilities.map((c) => ({ profile: c.profile, role: c.role, title: c.title })) : [],
       hasBehavior: !!(d.model && d.model.behavior.rules.length),
     }));
@@ -318,6 +319,45 @@ export class WidgetManager extends EventEmitter {
     }
     this.emit('instances', this.listInstances());
     return this.getInstance(inst.id);
+  }
+
+  /**
+   * Edit an existing instance: rename it and/or move it to another context.
+   * The widget TYPE is deliberately immutable — different capabilities are a
+   * different contract, so that is a new widget, not an edit.
+   * Re-attaches live when connected, so the realm picks the changes up
+   * immediately (node rename propagates; a context move re-registers the
+   * capabilities under the new context — the old context registration stays
+   * on the realm until cleaned up there, the SDK has no delete).
+   */
+  async updateInstance({ id, name, contextId, contextName }) {
+    const inst = this.#instances.find((i) => i.id === id);
+    if (!inst) throw new Error('Unknown widget instance.');
+    const newName = (name || '').trim();
+    if (!newName) throw new Error('The widget needs a name (it becomes the Node name).');
+
+    const newCtxId = (contextId || '').trim() || inst.contextId;
+    const newCtxName = (contextName || '').trim() || inst.contextName;
+    const ctxMoved = newCtxId !== inst.contextId;
+    const changed = ctxMoved || newName !== inst.name || newCtxName !== inst.contextName;
+    if (!changed) return this.getInstance(id);
+
+    inst.name = newName;
+    inst.contextId = newCtxId;
+    inst.contextName = newCtxName;
+    this.#saveInstances();
+    this.#log('info', `Widget "${newName}" updated` + (ctxMoved ? ' (moved to another context — the old context registration remains on the realm until cleaned up there).' : '.'));
+
+    if (this.#live.has(id)) {
+      this.#live.delete(id);
+      try {
+        await this.#attach(inst);
+      } catch (e) {
+        this.#log('warn', `Widget "${newName}" updated but re-attach failed: ${e.message || e}`);
+      }
+    }
+    this.emit('instances', this.listInstances());
+    return this.getInstance(id);
   }
 
   /** Forget an instance locally (its Node remains on the realm until cleaned up there). */

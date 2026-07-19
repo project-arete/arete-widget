@@ -401,6 +401,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('widget:libraryInfo', () => manager.libraryInfo());
   ipcMain.handle('widget:instances', () => manager.listInstances());
   ipcMain.handle('widget:add', (_evt, spec) => manager.addInstance(spec));
+  ipcMain.handle('widget:update', (_evt, spec) => manager.updateInstance(spec));
   ipcMain.handle('widget:remove', (_evt, id) => {
     const fp = faceplates.get(id);
     if (fp && !fp.isDestroyed()) fp.close();

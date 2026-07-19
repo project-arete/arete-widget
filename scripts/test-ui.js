@@ -1,8 +1,8 @@
 // Drive the REAL renderer/app.js in jsdom with a stubbed window.arete bridge.
-// Regression-tests the add-widget flow: open form, New-context feedback,
-// Join radio + dropdown (incl. empty-realm recovery), selection survival,
-// create. Added after the UI v2-v4 form bugs.
-// Original: open Add form -> click "Join existing" -> use the dropdown.
+// Regression-tests the tile-grid home page + add/edit dialog (UI v21):
+// open dialog from the + tile, filter the picker, configure (New/Join context,
+// selection survival across live keys pushes), create, and the edit flow
+// (⋯ menu → Edit → keep-context save via widgetUpdate).
 import fs from 'node:fs';
 let JSDOM;
 try {
@@ -37,8 +37,8 @@ const KEYS = {
   'cns/S2/nodes/N2/contexts/Ctx000000000000000002/consumer/padi.light/version': '1',
 };
 const DEFS = [
-  { id: 'bulb', file: 'widgets/bulb.yaml', ok: true, errors: [], title: 'Virtual Bulb', description: 'A light.', capabilities: [{ profile: 'padi.light', role: 'consumer', title: 'x' }], hasBehavior: true },
-  { id: 'switch', file: 'widgets/switch.yaml', ok: true, errors: [], title: 'Virtual Switch', description: 'A controller.', capabilities: [{ profile: 'padi.light', role: 'provider', title: 'x' }], hasBehavior: false },
+  { id: 'bulb', file: 'widgets/bulb.yaml', ok: true, errors: [], title: 'Virtual Bulb', description: 'A light.', icon: '💡', color: '#f5b34c', capabilities: [{ profile: 'padi.light', role: 'consumer', title: 'x' }], hasBehavior: true },
+  { id: 'switch', file: 'widgets/switch.yaml', ok: true, errors: [], title: 'Virtual Switch', description: 'A controller.', icon: '🎚', color: '', capabilities: [{ profile: 'padi.light', role: 'provider', title: 'x' }], hasBehavior: false },
 ];
 const subs = { keys: [], log: [], status: [], wdefs: [], winst: [], wstate: [] };
 window.arete = {
@@ -59,7 +59,8 @@ window.arete = {
   widgetReload: async () => DEFS,
   widgetInstances: async () => [],
   widgetAdd: async (spec) => { window.__added = spec; return { id: 'inst1', ...spec }; },
-  widgetRemove: async () => {},
+  widgetUpdate: async (spec) => { window.__updated = spec; return { id: spec.id, ...spec }; },
+  widgetRemove: async (id) => { window.__removed = id; },
   widgetOpen: async (id) => { window.__opened = id; },
   onWidgetDefs: (cb) => subs.wdefs.push(cb),
   onWidgetInstances: (cb) => subs.winst.push(cb),
@@ -75,63 +76,120 @@ window.eval(appjs);
 await new Promise((r) => setTimeout(r, 50)); // let init() settle
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
 const fire = (el, type) => el.dispatchEvent(new window.Event(type, { bubbles: true }));
 const report = (label, val) => console.log(label.padEnd(46), val);
+const failures = [];
+const assert = (label, ok) => { report(label + ':', ok); if (!ok) failures.push(label); };
 
-// 1) open the bulb Add form
-$('[data-add="bulb"]').click();
-report('add form rendered:', !!$('[data-form="bulb"]'));
-report('pending ctx id shown:', ($('#af-ctxinfo-new')?.textContent || '').includes('matching space'));
+// 1) the home page is a tile grid with a + tile
+assert('plus tile rendered', !!$('[data-plus]'));
+assert('no instance tiles yet', $$('.tile[data-open]').length === 0);
+
+// 2) + opens the dialog on the filterable picker
+$('[data-plus]').click();
+assert('dialog opened', !$('#dlgOverlay').hidden);
+assert('picker shows all widgets', $$('#dlgPickList .pick-row').length === 2);
+
+// 3) typing filters the list (and the input is never rebuilt)
+const search = $('#dlgSearch');
+search.value = 'controller';
+fire(search, 'input');
+assert('filter narrows to 1', $$('#dlgPickList .pick-row').length === 1);
+assert('filter matched the switch', $('#dlgPickList [data-pick]').dataset.pick === 'switch');
+for (const cb of subs.wdefs) cb(DEFS); // defs refresh while the dialog is open
+assert('search value survives defs refresh', $('#dlgSearch').value === 'controller');
+search.value = 'light';
+fire(search, 'input');
+assert('"light" finds both', $$('#dlgPickList .pick-row').length === 2);
+
+// 4) picking a widget moves to configuration
+$('#dlgPickList [data-pick="bulb"]').click();
+assert('chosen summary shown', ($('.dlg-chosen')?.textContent || '').includes('Virtual Bulb'));
+assert('name prefilled', $('#af-name').value === 'Virtual Bulb');
+assert('pending ctx id shown', ($('#af-ctxinfo-new')?.textContent || '').includes('matching space'));
+assert('back button present (create mode)', !!$('[data-back]'));
 
 const joinRadio = $('#af-ctx-join');
-report('join radio exists:', !!joinRadio);
-report('join radio DISABLED:', joinRadio?.disabled);
+assert('join radio enabled', joinRadio && !joinRadio.disabled);
 const sel = $('#af-ctxsel');
-report('select option count (only complementary):', sel?.options.length);
-report('matched ctx is the provider one:', sel?.options[0]?.value === 'Ctx000000000000000001');
-report('option mentions the partner:', (sel?.options[0]?.textContent || '').includes('1 padi.light provider'));
+assert('only complementary contexts listed', sel?.options.length === 1);
+assert('matched ctx is the provider one', sel?.options[0]?.value === 'Ctx000000000000000001');
+assert('option mentions the partner', (sel?.options[0]?.textContent || '').includes('1 padi.light provider'));
 
-// 2) click "Join existing"
+// 5) Join existing
 joinRadio.checked = true;
 $('#af-ctx-new').checked = false;
 fire(joinRadio, 'change');
-report('after join click — select row visible:', !$('#af-ctxsel-row').hidden);
-report('after join click — name row hidden:', $('#af-ctxname-row').hidden);
-report('join info populated:', ($('#af-ctxinfo-join')?.textContent || '').includes('already holds'));
+assert('join — select row visible', !$('#af-ctxsel-row').hidden);
+assert('join — name row hidden', $('#af-ctxname-row').hidden);
+assert('join info populated', ($('#af-ctxinfo-join')?.textContent || '').includes('already holds'));
 
-// 3) pick the second option, then simulate live keys pushes
-if (sel.options.length > 1) {
-  sel.selectedIndex = 1;
-  fire(sel, 'change');
-}
+// 6) selection survives live keys pushes
 const before = sel.value;
 for (const cb of subs.keys) cb({ ...KEYS, 'cns/S1/nodes/N1/contexts/Ctx000000000000000001/provider/padi.light/properties/sOut': '1' });
 for (const cb of subs.keys) cb({ ...KEYS });
-report('selection survives keys pushes:', sel.value === before && sel.value !== '');
+assert('selection survives keys pushes', sel.value === before && sel.value !== '');
 
-// 4) create
+// 7) create
 $('#af-create').click();
 await new Promise((r) => setTimeout(r, 20));
-report('widgetAdd called with contextId:', window.__added && window.__added.contextId);
-report('faceplate opened:', window.__opened);
-report('uncaught errors:', JSON.stringify(window.__errors));
+assert('widgetAdd called with contextId', !!(window.__added && window.__added.contextId));
+assert('faceplate opened', window.__opened === 'inst1');
+assert('dialog closed after create', $('#dlgOverlay').hidden);
 
-// 5) The suspected field scenario: form opened while keys are EMPTY.
-for (const cb of subs.keys) cb({});                  // realm looks empty
-document.querySelector('[data-add="bulb"]').click(); // open (form was closed after create)
-const jr = document.querySelector('#af-ctx-join');
-report('empty-keys open — join disabled:', jr.disabled);
-report('empty-keys open — hint visible:', !document.querySelector('#af-join-hint').hidden);
-for (const cb of subs.keys) cb(KEYS); // realm data arrives
-report('keys arrive — join re-enabled:', !jr.disabled);
-report('keys arrive — hint hidden:', document.querySelector('#af-join-hint').hidden);
-jr.checked = true; document.querySelector('#af-ctx-new').checked = false; fire(jr, 'change');
-report('join then usable — select visible:', !document.querySelector('#af-ctxsel-row').hidden);
-report('join then usable — options:', document.querySelector('#af-ctxsel').options.length);
+// 8) empty-realm open: join disabled with hint, recovers when keys arrive
+for (const cb of subs.keys) cb({});
+$('[data-plus]').click();
+$('#dlgPickList [data-pick="bulb"]').click();
+const jr = $('#af-ctx-join');
+assert('empty keys — join disabled', jr.disabled);
+assert('empty keys — hint visible', !$('#af-join-hint').hidden);
+for (const cb of subs.keys) cb(KEYS);
+assert('keys arrive — join re-enabled', !jr.disabled);
+assert('keys arrive — hint hidden', $('#af-join-hint').hidden);
+$('#dlgClose').click();
+assert('close button closes dialog', $('#dlgOverlay').hidden);
 
-const failures = [];
-// re-run critical booleans as hard assertions
+// 9) instances render as tiles with live state
+const INST = {
+  id: 'instA', widgetId: 'bulb', name: 'My Bulb', widgetTitle: 'Virtual Bulb',
+  contextId: 'Ctx000000000000000001', contextName: 'Light 1',
+  attached: true, connections: 1, state: { power: 'on' },
+  peers: [{ connId: 'c1', profile: 'padi.light', system: 'Black Switch', node: 'Switch Node' }],
+  perConn: {}, widgetOk: true,
+};
+for (const cb of subs.winst) cb([INST]);
+const tile = $('.tile[data-open="instA"]');
+assert('instance tile rendered', !!tile);
+assert('tile shows live state', (tile?.textContent || '').includes('power'));
+assert('tile shows bound chip', (tile?.textContent || '').includes('bound'));
+assert('tile shows peer NODE name', (tile?.textContent || '').includes('Switch Node'));
+
+// 10) tile click opens the faceplate
+window.__opened = null;
+tile.click();
+assert('tile click opens faceplate', window.__opened === 'instA');
+
+// 11) ⋯ menu → Edit: pre-filled, type locked, keep-context save
+$('[data-menu="instA"]').click();
+assert('menu opened', !!$('[data-menu-panel]'));
+$('[data-edit="instA"]').click();
+assert('edit dialog opened', !$('#dlgOverlay').hidden);
+assert('edit title', $('#dlgTitle').textContent === 'Edit widget');
+assert('edit — name prefilled', $('#af-name').value === 'My Bulb');
+assert('edit — type locked (no back button)', !$('[data-back]'));
+assert('edit — keep radio present + checked', !!$('#af-ctx-keep') && $('#af-ctx-keep').checked);
+assert('edit — current ctx excluded from join', $('#af-ctxsel').options.length === 0 && $('#af-ctx-join').disabled);
+$('#af-name').value = 'Kitchen Bulb';
+$('#af-create').click();
+await new Promise((r) => setTimeout(r, 20));
+assert('widgetUpdate called', !!window.__updated);
+assert('update keeps context id', window.__updated?.contextId === 'Ctx000000000000000001');
+assert('update carries new name', window.__updated?.name === 'Kitchen Bulb');
+assert('dialog closed after save', $('#dlgOverlay').hidden);
+
 if (window.__errors.length) failures.push('uncaught errors: ' + window.__errors);
-if (!window.__added || !window.__added.contextId) failures.push('widgetAdd not called correctly');
 if (failures.length) { console.error('\n❌ FAIL —', failures.join('; ')); process.exit(1); }
-console.log('\n✅ PASS — add-widget UI flow works end-to-end in DOM.');
+console.log('\n✅ PASS — tile grid + add/edit dialog work end-to-end in DOM.');
+process.exit(0);
