@@ -1,10 +1,9 @@
 # Virtual Bulb — a light that abides by cp:padi.light (consumer role).
-# The registry (cp.padi.io/profiles/padi.light) defines:
-#   server (provider / controller) writes: sOut ("1"=on, "0"=off), sLabel
-#   client (consumer / light)      writes: cState, cLabel
 widget: bulb
 title: Virtual Bulb
 description: A light being controlled. Follows the controller's sOut and reports its actual state back on cState.
+icon: "💡"
+color: "#f5d34c"
 
 capabilities:
   - profile: padi.light
@@ -23,7 +22,7 @@ view:
 
 behavior:
   init:
-    cState: "0"         # a fresh bulb reports off
+    cState: "0"
     cLabel: Virtual Bulb
   rules:
     - when: sOut        # auto-actualize: do what the controller says…

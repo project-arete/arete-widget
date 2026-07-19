@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('faceplate', {
   load: () => ipcRenderer.invoke('widget:faceplate', INSTANCE_ID),
   action: (property, value) =>
     ipcRenderer.invoke('widget:action', { id: INSTANCE_ID, property, value }),
+  setPinned: (pinned) => ipcRenderer.invoke('widget:fp-pin', { id: INSTANCE_ID, pinned }),
   onState: (cb) => {
     const h = (_e, payload) => {
       if (payload && payload.id === INSTANCE_ID) cb(payload);

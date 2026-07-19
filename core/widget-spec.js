@@ -28,7 +28,10 @@
 // ---------------------------------------------------------------------------
 
 const ROLES = ['provider', 'consumer'];
-const PRIMITIVES = ['lamp', 'toggle', 'value', 'label', 'field'];
+// Interactive primitives render as controls when the bound property is
+// writable by this widget's role, and as read-only displays otherwise
+// (except toggle/field, which REQUIRE a writable bind).
+const PRIMITIVES = ['lamp', 'toggle', 'value', 'label', 'field', 'meter', 'options', 'image', 'date', 'stepper', 'split'];
 
 /**
  * Extract the property map from a registry profile JSON (latest version).
@@ -87,6 +90,20 @@ export function validateDefinition(raw, profileJsons) {
   }
   const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : id;
   const description = typeof raw.description === 'string' ? raw.description.trim() : '';
+
+  // Optional visual identity: an icon (emoji / short string) and accent color.
+  let icon = '';
+  if (raw.icon != null) {
+    icon = String(raw.icon).trim();
+    if (icon.length > 8) e('`icon:` must be a short string (an emoji or a couple of characters).');
+  }
+  let color = '';
+  if (raw.color != null) {
+    color = String(raw.color).trim();
+    if (!/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(color)) {
+      e('`color:` must be a hex color like #f5b34c.');
+    }
+  }
 
   // ---- capabilities ----
   const capsIn = Array.isArray(raw.capabilities) ? raw.capabilities : [];
@@ -148,6 +165,11 @@ export function validateDefinition(raw, profileJsons) {
     const prim = { type };
     if (typeof v.caption === 'string') prim.caption = v.caption;
 
+    if (type === 'split') {
+      // Layout marker: starts the second column (you | them faceplates).
+      view.push(prim);
+      return;
+    }
     if (type === 'label') {
       if (typeof v.text === 'string') prim.text = v.text;
       else if (typeof v.bind === 'string' && resolveBind(v.bind, where)) prim.bind = v.bind;
@@ -162,6 +184,23 @@ export function validateDefinition(raw, profileJsons) {
     if (type === 'lamp' || type === 'toggle') {
       prim.on = v.on != null ? String(v.on) : '1';
       prim.off = v.off != null ? String(v.off) : '0';
+    }
+    if (type === 'meter') {
+      prim.min = Number.isFinite(Number(v.min)) ? Math.trunc(Number(v.min)) : 0;
+      prim.max = Number.isFinite(Number(v.max)) ? Math.trunc(Number(v.max)) : 5;
+      if (prim.max <= prim.min) { e(`${where}: meter needs max > min.`); return; }
+      if (prim.max - prim.min > 20) { e(`${where}: meter range is limited to 20 steps.`); return; }
+    }
+    if (type === 'options') {
+      const vals = Array.isArray(v.values) ? v.values.map((x) => String(x)) : null;
+      if (!vals || !vals.length) { e(`${where}: options requires a non-empty \`values:\` list.`); return; }
+      if (vals.length > 24) { e(`${where}: options is limited to 24 values.`); return; }
+      prim.values = vals;
+    }
+    if (type === 'stepper') {
+      if (v.min != null) prim.min = Number(v.min);
+      if (v.max != null) prim.max = Number(v.max);
+      prim.step = v.step != null && Number.isFinite(Number(v.step)) ? Number(v.step) : 1;
     }
     view.push(prim);
   });
@@ -202,6 +241,6 @@ export function validateDefinition(raw, profileJsons) {
   return {
     ok: true,
     errors: [],
-    model: { id, title, description, capabilities, resolve, writable, view, behavior },
+    model: { id, title, description, icon, color, capabilities, resolve, writable, view, behavior },
   };
 }

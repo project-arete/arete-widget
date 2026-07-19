@@ -1,11 +1,9 @@
 # Trust Provider — server role of cp:padi.trust.basic ("Based on DTC Paper").
-# The registry (cp.padi.io/profiles/padi.trust.basic) defines:
-#   server (Trust Provider) writes: provSecurity/provPrivacy/provSafety/
-#     provReliability/provResiliency (levels 1-5) + provAttestation (URL)
-#   client (Trust Consumer) writes: the matching req* properties
 widget: trust-provider
 title: Trust Provider
 description: Offers trust levels (1-5) for security, privacy, safety, reliability and resiliency, with an attestation URL — and shows what a connected consumer is requesting.
+icon: "🛡"
+color: "#9b6ef5"
 
 capabilities:
   - profile: padi.trust.basic
@@ -13,42 +11,63 @@ capabilities:
 
 view:
   - type: label
-    text: — levels you offer —
-  - type: field
+    text: you offer
+  - type: meter
     bind: provSecurity
-    caption: security offered (1-5)
-  - type: field
+    min: 1
+    max: 5
+    caption: security
+  - type: meter
     bind: provPrivacy
-    caption: privacy offered (1-5)
-  - type: field
+    min: 1
+    max: 5
+    caption: privacy
+  - type: meter
     bind: provSafety
-    caption: safety offered (1-5)
-  - type: field
+    min: 1
+    max: 5
+    caption: safety
+  - type: meter
     bind: provReliability
-    caption: reliability offered (1-5)
-  - type: field
+    min: 1
+    max: 5
+    caption: reliability
+  - type: meter
     bind: provResiliency
-    caption: resiliency offered (1-5)
+    min: 1
+    max: 5
+    caption: resiliency
   - type: field
     bind: provAttestation
     caption: attestation URL
+  - type: split
   - type: label
-    text: — requested by the consumer —
-  - type: value
+    text: consumer requests
+  - type: meter
     bind: reqSecurity
-    caption: security requested
-  - type: value
+    min: 1
+    max: 5
+    caption: security
+  - type: meter
     bind: reqPrivacy
-    caption: privacy requested
-  - type: value
+    min: 1
+    max: 5
+    caption: privacy
+  - type: meter
     bind: reqSafety
-    caption: safety requested
-  - type: value
+    min: 1
+    max: 5
+    caption: safety
+  - type: meter
     bind: reqReliability
-    caption: reliability requested
-  - type: value
+    min: 1
+    max: 5
+    caption: reliability
+  - type: meter
     bind: reqResiliency
-    caption: resiliency requested
+    min: 1
+    max: 5
+    caption: resiliency
   - type: value
     bind: reqAttestation
     caption: consumer attestation

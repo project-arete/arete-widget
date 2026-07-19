@@ -218,7 +218,7 @@ function renderDefs() {
     return `<div class="def-card ${d.ok ? '' : 'invalid'}" data-id="${esc(d.id)}">
       <div class="def-head">
         <div>
-          <div class="def-title">${esc(d.title)} ${badge}</div>
+          <div class="def-title">${d.icon ? esc(d.icon) + ' ' : ''}${esc(d.title)} ${badge}</div>
           <div class="def-desc">${esc(d.description)}</div>
           <div class="def-caps">${caps}</div>
         </div>

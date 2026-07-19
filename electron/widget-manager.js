@@ -209,6 +209,7 @@ export class WidgetManager extends EventEmitter {
       errors: d.errors,
       title: d.title,
       description: d.description,
+      icon: d.model ? d.model.icon || '' : '',
       capabilities: d.model ? d.model.capabilities.map((c) => ({ profile: c.profile, role: c.role, title: c.title })) : [],
       hasBehavior: !!(d.model && d.model.behavior.rules.length),
     }));
@@ -251,10 +252,34 @@ export class WidgetManager extends EventEmitter {
         attached: !!live,
         state: live ? live.state : {},
         connections: live ? live.connections : 0,
+        peers: live ? live.peers || [] : [],
         widgetOk: !!(def && def.ok),
         widgetTitle: def ? def.title : inst.widgetId,
       };
     });
+  }
+
+  // Who is this instance bound to? Read the connection peer paths from the
+  // keys and resolve their system/node names — the visible face of a binding.
+  #peersFor(inst, model, keys) {
+    const peers = [];
+    for (const cap of model.capabilities) {
+      const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}/${cap.role}/${cap.profile}/connections/`;
+      const peerSide = cap.role === 'provider' ? 'consumer' : 'provider';
+      for (const k in keys) {
+        if (!k.startsWith(prefix)) continue;
+        const m = k.slice(prefix.length).match(/^([^/]+)\/(consumer|provider)$/);
+        if (!m || m[2] !== peerSide) continue;
+        const p = String(keys[k]).split('/'); // cns/<sys>/nodes/<node>/contexts/<ctx>
+        peers.push({
+          connId: m[1],
+          profile: cap.profile,
+          system: keys[`cns/${p[1]}/name`] || p[1],
+          node: keys[`cns/${p[1]}/nodes/${p[3]}/name`] || p[3],
+        });
+      }
+    }
+    return peers;
   }
 
   getInstance(id) {
@@ -362,11 +387,15 @@ export class WidgetManager extends EventEmitter {
 
     const { state, connections } = deriveState(keys, inst, def.model);
     reconcilePending(state, live.pending);
+    const peers = this.#peersFor(inst, def.model, keys);
 
     const changed =
-      connections !== live.connections || JSON.stringify(state) !== JSON.stringify(live.state);
+      connections !== live.connections ||
+      JSON.stringify(state) !== JSON.stringify(live.state) ||
+      JSON.stringify(peers) !== JSON.stringify(live.peers || []);
     live.state = state;
     live.connections = connections;
+    live.peers = peers;
 
     // Auto-actualize: converge on the declared rules.
     const actions = computeActions(def.model, state, live.pending);
@@ -382,6 +411,7 @@ export class WidgetManager extends EventEmitter {
         id: inst.id,
         state: { ...state, ...live.pending },
         connections,
+        peers,
       });
     }
   }
@@ -412,6 +442,7 @@ export class WidgetManager extends EventEmitter {
       id: instanceId,
       state: { ...live.state, ...live.pending },
       connections: live.connections,
+      peers: live.peers || [],
     });
   }
 }

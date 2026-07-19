@@ -213,14 +213,20 @@ function openFaceplate(instanceId) {
   // Size the window to the faceplate: small widgets (a bulb) stay compact,
   // big ones (trust profiles with a dozen fields) open tall enough to use.
   const model = manager.getModel(inst.widgetId);
+  const split = !!(model && model.view.some((v) => v.type === 'split'));
   const items = model ? model.view.length : 4;
-  const defaultHeight = Math.max(300, Math.min(760, 150 + items * 58));
-  const bounds = placeFaceplate(instanceId, 300, defaultHeight);
+  const perCol = split ? Math.ceil(items / 2) : items;
+  const defaultWidth = split ? 560 : 300;
+  const defaultHeight = Math.max(300, Math.min(760, 170 + perCol * 58));
+  const bounds = placeFaceplate(instanceId, defaultWidth, defaultHeight);
+  const saved = readFpBounds()[instanceId] || {};
   const win = new BrowserWindow({
     ...bounds,
     minWidth: 220,
     minHeight: 260,
+    frame: false, // device look — the faceplate header is the title bar
     title: inst.name,
+    alwaysOnTop: !!saved.pinned,
     webPreferences: {
       preload: path.join(__dirname, 'preload-faceplate.cjs'),
       contextIsolation: true,
@@ -275,10 +281,10 @@ function wireEvents() {
   manager.on('log', (e) => toMain('arete:log', e));
   manager.on('defs', (defs) => toMain('widget:defs', defs));
   manager.on('instances', (list) => toMain('widget:instances', list));
-  manager.on('state', ({ id, state, connections }) => {
-    toMain('widget:state', { id, state, connections });
+  manager.on('state', ({ id, state, connections, peers }) => {
+    toMain('widget:state', { id, state, connections, peers });
     const fp = faceplates.get(id);
-    if (fp && !fp.isDestroyed()) fp.webContents.send('widget:state', { id, state, connections });
+    if (fp && !fp.isDestroyed()) fp.webContents.send('widget:state', { id, state, connections, peers });
   });
 }
 
@@ -405,6 +411,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('widget:action', (_evt, { id, property, value }) =>
     manager.putProperty(id, property, value)
   );
+  // Pin a faceplate above other windows; the choice persists per instance.
+  ipcMain.handle('widget:fp-pin', (_evt, { id, pinned }) => {
+    const fp = faceplates.get(id);
+    if (fp && !fp.isDestroyed()) fp.setAlwaysOnTop(!!pinned);
+    const map = readFpBounds();
+    map[id] = { ...(map[id] || {}), pinned: !!pinned };
+    writeFpBounds(map);
+    return !!pinned;
+  });
   // Faceplate bootstrap: everything one faceplate window needs to render.
   ipcMain.handle('widget:faceplate', (_evt, id) => {
     const inst = manager.getInstance(id);
@@ -416,12 +431,16 @@ app.whenReady().then(async () => {
       contextName: inst.contextName,
       widgetId: inst.widgetId,
       title: model ? model.title : inst.widgetId,
+      icon: model ? model.icon || '' : '',
+      color: model ? model.color || '' : '',
       view: model ? model.view : [],
       writable: model ? model.writable : [],
       hasRules: !!(model && model.behavior.rules.length),
       state: inst.state,
       connections: inst.connections,
+      peers: inst.peers || [],
       attached: inst.attached,
+      pinned: !!(readFpBounds()[inst.id] || {}).pinned,
       theme: settings.readSettings().theme || 'dark',
     };
   });

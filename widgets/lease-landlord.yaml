@@ -1,12 +1,9 @@
 # Lease Landlord — server role of cp:padi.lease.basic ("Simple leasing profile").
-# The registry (cp.padi.io/profiles/padi.lease.basic) defines:
-#   server (Landlord) writes: rate (per SqFt), capacity (people allowed),
-#     status (Interest | Offer | Accept | Decline | Approved | Delinquent | Terminated)
-#   client (Tenant)   writes: tenant (display name), end (lease end date),
-#     rent (monthly USD), logo (URL, 800x400)
 widget: lease-landlord
 title: Lease Landlord
 description: Publishes the terms of a space - rental rate and capacity - reviews what a tenant proposes, and drives the lease status through its lifecycle.
+icon: "🏢"
+color: "#f5b34c"
 
 capabilities:
   - profile: padi.lease.basic
@@ -14,18 +11,26 @@ capabilities:
 
 view:
   - type: label
-    text: — your terms —
+    text: your terms
   - type: field
     bind: rate
     caption: rate (per SqFt)
-  - type: field
+  - type: stepper
     bind: capacity
+    min: 0
+    max: 10000
+    step: 5
     caption: capacity (people)
-  - type: field
+  - type: options
     bind: status
-    caption: lease status (Interest/Offer/Accept/Decline/Approved/Delinquent/Terminated)
+    values: [Interest, Offer, Accept, Decline, Approved, Delinquent, Terminated]
+    caption: lease status
+  - type: split
   - type: label
-    text: — proposed by the tenant —
+    text: proposed by the tenant
+  - type: image
+    bind: logo
+    caption: tenant logo
   - type: value
     bind: tenant
     caption: tenant
@@ -35,6 +40,3 @@ view:
   - type: value
     bind: end
     caption: lease end date
-  - type: value
-    bind: logo
-    caption: tenant logo URL
