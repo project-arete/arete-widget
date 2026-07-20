@@ -288,7 +288,21 @@ export class AreteService extends EventEmitter {
     const context = await node.context(contextId, contextName);
 
     const caps = {};
+    const keys = this.#client.keys || {};
     for (const c of capabilities) {
+      const base = `cns/${system.id}/nodes/${nodeId}/contexts/${contextId}/${c.role}/${c.profile}`;
+      // The control plane's provider/consumer declaration is NOT idempotent:
+      // re-declaring an existing capability RESETS its property values to
+      // empty (verified live — systems/nodes/contexts re-registration is
+      // value-safe, the providers/consumers command is the wiper, and the
+      // empties then propagate into every connection). If the capability is
+      // already on the realm from a previous run, skip the command and build
+      // a plain key-path handle instead — existing values then survive app
+      // restarts and reconnects.
+      if (keys[base + '/version'] !== undefined) {
+        caps[`${c.role}|${c.profile}`] = this.#capHandle(base);
+        continue;
+      }
       const handle = c.role === 'provider'
         ? await context.provider(c.profile)
         : await context.consumer(c.profile);
@@ -319,6 +333,17 @@ export class AreteService extends EventEmitter {
       throw new Error('Refusing to write a non-cns key.');
     }
     return this.#client.put(key, String(value));
+  }
+
+  // Minimal stand-in for the SDK's Provider/Consumer handle (same get/put
+  // surface) that issues NO registration command — used when the capability
+  // already exists on the realm.
+  #capHandle(base) {
+    const client = this.#client;
+    return {
+      get: (property, def = null) => client.get(`${base}/properties/${property}`, def),
+      put: (property, value) => client.put(`${base}/properties/${property}`, value),
+    };
   }
 
   #startStatusPolling() {
