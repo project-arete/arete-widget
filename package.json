@@ -1,6 +1,6 @@
 {
   "name": "arete-widget",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Arete Widget — create virtual widgets from YAML definitions and let them live on a CNS/CP realm. Each widget declares CP capabilities and renders a faceplate window in lieu of the physical device.",
   "author": "Anto <anto@padi.io>",
   "license": "(MIT OR Apache-2.0)",
