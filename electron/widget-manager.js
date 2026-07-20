@@ -438,7 +438,7 @@ export class WidgetManager extends EventEmitter {
     if (!live || !def || !def.ok || !inst.systemId) return;
 
     const { state, connections, perConn } = deriveState(keys, inst, def.model);
-    reconcilePending(state, live.pending);
+    reconcilePending(state, live.pending, perConn);
     const peers = this.#peersFor(inst, def.model, keys);
 
     const changed =
@@ -452,9 +452,17 @@ export class WidgetManager extends EventEmitter {
     live.peers = peers;
 
     // Auto-actualize: converge on the declared rules (perConn feeds
-    // aggregate rules, e.g. cState = average of sOut across connections).
+    // aggregate rules; reply rules produce connection-addressed actions).
     const actions = computeActions(def.model, state, live.pending, perConn);
     for (const a of actions) {
+      if (a.connId) {
+        live.pending[a.connId + '|' + a.property] = String(a.value);
+        this.#putConn(inst, def.model, a.property, a.value, a.connId).catch((e) =>
+          this.#log('error', `Reply put failed for "${inst.name}".${a.property}: ${e.message || e}`)
+        );
+        this.#log('info', `⚙ ${inst.name}: ${a.property} → "${a.value}" (reply on ${a.connId}).`);
+        continue;
+      }
       this.#put(inst, def.model, a.property, a.value).catch((e) =>
         this.#log('error', `Auto-actualize put failed for "${inst.name}".${a.property}: ${e.message || e}`)
       );

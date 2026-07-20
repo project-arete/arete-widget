@@ -58,24 +58,26 @@ const ok = (name) => console.log(`  ✔ ${name}`) || n++;
   };
   const PR = { 'x.test': P };
 
-  // Reading a peer-written non-propagated property can never work -> refused.
+  // Reading a peer-written non-propagated property is LEGAL: it is not
+  // broadcast, but the peer can deliver it on the addressed per-connection
+  // channel (2026-07-20 semantics refinement).
   let res = validateDefinition({
     widget: 'a', title: 'A',
     capabilities: [{ profile: 'x.test', role: 'consumer' }],
     view: [{ type: 'value', bind: 'hidden' }],
   }, PR);
-  assert.ok(!res.ok && res.errors.some((e) => e.includes('propagate')));
-  ok('reading a peer-written non-propagated property is refused');
+  assert.ok(res.ok, res.errors.join('; '));
+  ok('reading a peer-written non-propagated property is allowed (addressed channel)');
 
-  // A rule listening to it could never fire -> refused.
+  // ...and a rule may listen to it (it fires when the peer addresses us).
   res = validateDefinition({
     widget: 'b', title: 'B',
     capabilities: [{ profile: 'x.test', role: 'consumer' }],
     view: [{ type: 'value', bind: 'shared' }],
     behavior: { rules: [{ when: 'hidden', set: 'note' }] },
   }, PR);
-  assert.ok(!res.ok && res.errors.some((e) => e.includes('propagate')));
-  ok('rule when: on a non-propagated peer property is refused');
+  assert.ok(res.ok, res.errors.join('; '));
+  ok('rule when: on a non-propagated peer property is allowed');
 
   // Your OWN non-propagated property stays writable and bindable (local).
   res = validateDefinition({
@@ -230,6 +232,66 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
   }, PROFILES);
   assert.ok(!bad.ok && bad.errors.some((er) => er.includes('aggregate')));
   ok('validator refuses unknown aggregate');
+}
+
+// ---- addressed reply rules (cp:padi.ping) ----
+{
+  // Fixture mirrors the REAL cp.padi.io registry entry for padi.ping.
+  const PADI_PING = {
+    name: 'padi.ping',
+    title: 'Simple connection ping',
+    versions: [{
+      properties: [
+        { name: 'send', server: null, description: 'Send the message' },
+        { name: 'sendP', description: 'Send with propagate', server: null, propagate: null },
+        { name: 'response', description: 'Response from Responder' },
+      ],
+    }],
+  };
+  const PR2 = { 'padi.ping': PADI_PING, 'padi.light': PADI_LIGHT };
+
+  // both shipped ping widgets validate
+  for (const f of ['ping-sender.yaml', 'ping-responder.yaml']) {
+    const raw = yaml.load(fs.readFileSync(path.join(ROOT, 'widgets', f), 'utf8'));
+    const res = validateDefinition(raw, PR2);
+    assert.ok(res.ok, `${f}: ${res.errors.join('; ')}`);
+    ok(`${f} validates (incl. reading non-propagated response / reply rule)`);
+  }
+
+  // the validator rejects bad reply usage
+  const bad = validateDefinition({
+    widget: 'x', title: 'X',
+    capabilities: [{ profile: 'padi.ping', role: 'consumer' }],
+    view: [{ type: 'value', bind: 'sendP' }],
+    behavior: { rules: [{ when: 'sendP', set: 'response', reply: 'yes' }] },
+  }, PR2);
+  assert.ok(!bad.ok && bad.errors.some((er) => er.includes('reply')));
+  ok('validator refuses reply: values other than true');
+
+  // ENGINE: reply rule answers per connection, on that connection
+  const raw = yaml.load(fs.readFileSync(path.join(ROOT, 'widgets', 'ping-responder.yaml'), 'utf8'));
+  const { model } = validateDefinition(raw, PR2);
+  const perConn = {
+    c1: { sendP: 'hello-from-A' },
+    c2: { sendP: 'hello-from-B', response: 'hello-from-B' }, // c2 already answered
+  };
+  const pending = {};
+  let actions = computeActions(model, { sendP: 'hello-from-B' }, pending, perConn);
+  assert.deepEqual(actions, [{ property: 'response', value: 'hello-from-A', connId: 'c1' }]);
+  ok('reply rule: answers ONLY the unanswered connection, addressed to it');
+
+  // pending guard is connection-scoped
+  pending['c1|response'] = 'hello-from-A';
+  actions = computeActions(model, { sendP: 'hello-from-B' }, pending, perConn);
+  assert.equal(actions.length, 0);
+  ok('reply rule: connection-scoped pending prevents duplicate replies');
+
+  // echo arrives on c1 -> pending reconciled via perConn
+  const perConn2 = { ...perConn, c1: { sendP: 'hello-from-A', response: 'hello-from-A' } };
+  reconcilePending({}, pending, perConn2);
+  assert.ok(!('c1|response' in pending));
+  assert.equal(computeActions(model, { sendP: 'hello-from-B' }, pending, perConn2).length, 0);
+  ok('reply rule: converges once every connection carries its answer');
 }
 
 console.log(`\n✅ PASS — ${n} spec/engine checks.`);
