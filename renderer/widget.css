@@ -91,6 +91,16 @@ button.danger { color: var(--red); }
 .tile-menu .menu-row button { width: auto; text-align: center; padding: 6px 12px; }
 .tile-menu .menu-row button.danger { color: white; background: var(--red); border-color: var(--red); }
 .tile-menu .menu-row button.danger:hover { background: #e05555; }
+/* ---- remove-all (card header) ---- */
+.card-tools { display: flex; align-items: center; gap: 12px; }
+.removeall { position: relative; display: inline-flex; }
+.removeall > button.danger {
+  background: none; border: 1px solid transparent; padding: 4px 10px;
+  border-radius: 7px; font-size: 12.5px; cursor: pointer;
+}
+.removeall > button.danger:hover { background: var(--panel-2); border-color: rgba(245,108,108,.4); }
+.removeall .tile-menu { top: calc(100% + 6px); }
+
 .tile.plus {
   align-items: center; justify-content: center; gap: 2px;
   border-style: dashed; border-top-width: 1px; background: none; color: var(--muted);

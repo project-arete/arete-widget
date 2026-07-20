@@ -26,6 +26,7 @@ const els = {
   libraryUrl: $('libraryUrl'),
   tileGrid: $('tileGrid'),
   systemNameNote: $('systemNameNote'),
+  removeAllWrap: $('removeAllWrap'),
   dlgOverlay: $('dlgOverlay'), dlgTitle: $('dlgTitle'), dlgBody: $('dlgBody'),
   dlgFoot: $('dlgFoot'), dlgClose: $('dlgClose'),
 };
@@ -473,6 +474,26 @@ els.dlgBody.addEventListener('change', (e) => {
 // =========================================================================
 let menuFor = null;     // instance id whose ⋯ menu is open
 let removeArmed = null; // instance id armed for removal
+let removeAllArmed = false; // header "Remove all" confirm showing
+
+// The header "Remove all…" control: hidden with no widgets; armed shows an
+// are-you-sure popover (same look as the tile remove confirm).
+function renderRemoveAll() {
+  const w = els.removeAllWrap;
+  if (!w) return;
+  if (!instances.length) { removeAllArmed = false; w.innerHTML = ''; return; }
+  w.innerHTML = removeAllArmed
+    ? `<button type="button" class="danger" data-ra-arm>Remove all…</button>
+       <div class="tile-menu confirm" data-ra-panel>
+        <div class="menu-q">Remove all ${instances.length} widget${instances.length === 1 ? '' : 's'}?</div>
+        <div class="menu-note">Removes every widget from this app and closes their faceplates. The realm nodes are left as-is.</div>
+        <div class="menu-row">
+          <button type="button" data-ra-cancel>Cancel</button>
+          <button type="button" class="danger" data-ra-yes>Remove all</button>
+        </div>
+      </div>`
+    : `<button type="button" class="danger" data-ra-arm title="Remove every widget from this app">Remove all…</button>`;
+}
 
 function renderTiles() {
   els.s.attached.textContent = `${instances.filter((i) => i.attached).length} / ${instances.length}`;
@@ -524,7 +545,25 @@ function renderTiles() {
   els.tileGrid.innerHTML = tiles + `<button type="button" class="tile plus" data-plus title="Add a widget">
       <span class="plus-sign">+</span><span class="plus-label">Add widget</span>
     </button>`;
+  renderRemoveAll();
 }
+
+els.removeAllWrap.addEventListener('click', (e) => {
+  if (e.target.closest('[data-ra-yes]')) {
+    removeAllArmed = false;
+    window.arete.widgetRemoveAll(); // 'instances' push re-renders the grid
+    return;
+  }
+  if (e.target.closest('[data-ra-cancel]')) {
+    removeAllArmed = false;
+    renderRemoveAll();
+    return;
+  }
+  if (e.target.closest('[data-ra-arm]')) {
+    removeAllArmed = !removeAllArmed;
+    renderRemoveAll();
+  }
+});
 
 els.tileGrid.addEventListener('click', (e) => {
   const menuBtn = e.target.closest('[data-menu]');

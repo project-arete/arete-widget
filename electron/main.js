@@ -469,6 +469,18 @@ app.whenReady().then(async () => {
       writeFpBounds(map);
     }
   });
+  ipcMain.handle('widget:removeAll', () => {
+    const ids = manager.listInstances().map((i) => i.id);
+    for (const fp of faceplates.values()) {
+      if (!fp.isDestroyed()) fp.close();
+    }
+    const count = manager.removeAllInstances();
+    const map = readFpBounds(); // forget every removed widget's window spot
+    let dirty = false;
+    for (const id of ids) if (map[id]) { delete map[id]; dirty = true; }
+    if (dirty) writeFpBounds(map);
+    return count;
+  });
   ipcMain.handle('widget:open', (_evt, id) => openFaceplate(id));
   ipcMain.handle('widget:action', (_evt, { id, property, value, connId }) =>
     manager.putProperty(id, property, value, connId || null)

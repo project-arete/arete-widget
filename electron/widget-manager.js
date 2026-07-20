@@ -370,6 +370,17 @@ export class WidgetManager extends EventEmitter {
     this.emit('instances', this.listInstances());
   }
 
+  /** Forget EVERY instance locally (realm nodes remain until cleaned up there). */
+  removeAllInstances() {
+    const count = this.#instances.length;
+    this.#live.clear();
+    this.#instances = [];
+    this.#saveInstances();
+    if (count) this.#log('info', `All ${count} widget(s) removed from this app (realm nodes not deleted).`);
+    this.emit('instances', this.listInstances());
+    return count;
+  }
+
   // ------------------------------------------------------ attach / detach
   async #attach(inst) {
     const def = this.#defs.get(inst.widgetId);

@@ -14,7 +14,7 @@
         <img class="logo" src="logo.png" alt="Arete" />
         <div>
           <h1>Arete Widget</h1>
-          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v27</span></p>
+          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v28</span></p>
         </div>
       </div>
       <div class="realm-ind" id="realmInd" hidden>
@@ -44,7 +44,10 @@
         <section class="card" id="instancesCard">
           <div class="card-head">
             <h2>Your widgets</h2>
-            <span class="muted-note" id="systemNameNote"></span>
+            <span class="card-tools">
+              <span class="muted-note" id="systemNameNote"></span>
+              <span class="removeall" id="removeAllWrap"></span>
+            </span>
           </div>
           <div id="tileGrid" class="tile-grid"></div>
         </section>

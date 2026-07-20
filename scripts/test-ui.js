@@ -61,6 +61,7 @@ window.arete = {
   widgetAdd: async (spec) => { window.__added = spec; return { id: 'inst1', ...spec }; },
   widgetUpdate: async (spec) => { window.__updated = spec; return { id: spec.id, ...spec }; },
   widgetRemove: async (id) => { window.__removed = id; },
+  widgetRemoveAll: async () => { window.__removedAll = true; },
   widgetOpen: async (id) => { window.__opened = id; },
   onWidgetDefs: (cb) => subs.wdefs.push(cb),
   onWidgetInstances: (cb) => subs.winst.push(cb),
@@ -203,6 +204,24 @@ assert('cancel returns to menu', !$('.tile-menu.confirm') && !!$('[data-remove="
 $('[data-remove="instA"]').click();
 $('[data-remove-yes="instA"]').click();
 assert('widgetRemove called', window.__removed === 'instA');
+
+// 12a) header "Remove all…" flow: hidden when empty, armed confirm, cancel, yes
+{
+  const btn = () => $('#removeAllWrap [data-ra-arm]');
+  assert('remove-all button visible with instances', !!btn());
+  btn().click();
+  assert('remove-all confirm shown', !!$('[data-ra-panel]'));
+  assert('confirm counts the widgets', ($('[data-ra-panel] .menu-q')?.textContent || '').includes('1 widget'));
+  assert('confirm mentions realm nodes kept', ($('[data-ra-panel] .menu-note')?.textContent || '').includes('left as-is'));
+  $('[data-ra-cancel]').click();
+  assert('cancel hides the confirm', !$('[data-ra-panel]'));
+  btn().click();
+  $('[data-ra-yes]').click();
+  assert('confirm triggers widgetRemoveAll', window.__removedAll === true);
+  for (const cb of subs.winst) cb([]); // main pushes the now-empty list
+  assert('empty list hides remove-all', !btn() && $$('.tile[data-open]').length === 0);
+  for (const cb of subs.winst) cb([INST]); // restore for the next sections
+}
 
 // 12b) the picker filter is remembered across dialog opens (this session)
 $('[data-plus]').click();
