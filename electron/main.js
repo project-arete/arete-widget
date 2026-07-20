@@ -314,7 +314,23 @@ function wireEvents() {
 
   manager.on('log', (e) => toMain('arete:log', e));
   manager.on('defs', (defs) => toMain('widget:defs', defs));
-  manager.on('instances', (list) => toMain('widget:instances', list));
+  manager.on('instances', (list) => {
+    toMain('widget:instances', list);
+    // Faceplates bootstrap their identity (name, context) once, on open —
+    // push identity edits (rename / context move) to any OPEN faceplate so
+    // its header and window title follow immediately.
+    for (const [id, fp] of faceplates) {
+      if (fp.isDestroyed()) continue;
+      const inst = list.find((i) => i.id === id);
+      if (!inst) continue; // removal already closes the window elsewhere
+      fp.setTitle(inst.name);
+      fp.webContents.send('widget:info', {
+        id,
+        name: inst.name,
+        contextName: inst.contextName,
+      });
+    }
+  });
   manager.on('state', ({ id, state, connections, peers, perConn }) => {
     toMain('widget:state', { id, state, connections, peers });
     const fp = faceplates.get(id);
@@ -454,8 +470,8 @@ app.whenReady().then(async () => {
     }
   });
   ipcMain.handle('widget:open', (_evt, id) => openFaceplate(id));
-  ipcMain.handle('widget:action', (_evt, { id, property, value }) =>
-    manager.putProperty(id, property, value)
+  ipcMain.handle('widget:action', (_evt, { id, property, value, connId }) =>
+    manager.putProperty(id, property, value, connId || null)
   );
   // The faceplate asks to grow/shrink (peer strip appearing/disappearing) so
   // its content area keeps a constant size instead of sprouting scrollbars.

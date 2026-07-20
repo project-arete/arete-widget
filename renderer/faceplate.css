@@ -101,6 +101,8 @@ body {
 .value.mixed, .labelval.mixed, .opt-badge.mixed, .meter-num.mixed {
   color: var(--amber); font-style: italic;
 }
+.toggle.mixed { border-style: dashed; border-color: var(--amber); }
+.toggle.mixed::after { background: var(--amber); left: 22px; opacity: .6; }
 .lamp.mixed {
   border-style: dashed; border-color: var(--amber);
   background: radial-gradient(circle at 35% 30%, #4a4433, #171c23 70%);

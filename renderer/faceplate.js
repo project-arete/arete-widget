@@ -17,6 +17,7 @@ let peers = [];             // [{connId, system, node, profile}]
 let selConn = 'all';        // 'all' | connId — which connection the read side shows
 let mixedMap = {};          // bind -> [distinct values] when peers disagree (All view)
 let peerWritten = new Set(); // binds NOT writable by this widget = written by peers
+let allBinds = new Set();   // every bound property in the view (mixed applies to all)
 const updaters = [];        // fns called with (state) on every push
 
 function chip(connections, attached) {
@@ -97,7 +98,7 @@ function computeView() {
   }
   state = merged;
   if (peers.length >= 2) {
-    for (const bind of peerWritten) {
+    for (const bind of allBinds) {
       const vals = new Set();
       for (const p of peers) {
         const pc = perConn[p.connId];
@@ -162,7 +163,10 @@ function mixedTitle(prim) {
 }
 
 function act(prim, value) {
-  window.faceplate.action(prim.bind, String(value)).catch(() => {});
+  // A selected peer chip scopes the write to that ONE connection (the control
+  // plane mirrors connection properties 1:1); All = capability broadcast.
+  const conn = selConn !== 'all' ? selConn : null;
+  window.faceplate.action(prim.bind, String(value), conn).catch(() => {});
 }
 
 const BUILDERS = {
@@ -182,7 +186,11 @@ const BUILDERS = {
     t.setAttribute('aria-label', prim.caption || prim.bind);
     t.disabled = !writable;
     t.addEventListener('click', () => act(prim, state[prim.bind] === prim.on ? prim.off : prim.on));
-    watch(prim, (raw) => t.classList.toggle('on', raw === prim.on));
+    watch(prim, (raw, _c, mixed) => {
+      t.classList.toggle('mixed', mixed);
+      t.classList.toggle('on', !mixed && raw === prim.on);
+      t.title = mixed ? 'mixed: ' + mixedTitle(prim) : '';
+    });
     return t;
   },
 
@@ -413,6 +421,7 @@ async function init() {
   peerWritten = new Set(
     fp.view.filter((v) => v.bind && !fp.writable.includes(v.bind)).map((v) => v.bind)
   );
+  allBinds = new Set(fp.view.filter((v) => v.bind).map((v) => v.bind));
   peers = fp.peers || [];
   build();
   chip(fp.connections, fp.attached);
@@ -428,6 +437,18 @@ async function init() {
   });
   if (window.faceplate.onTheme) {
     window.faceplate.onTheme((theme) => document.body.classList.toggle('light', theme === 'light'));
+  }
+  // The bootstrap above runs once — identity edits (rename / context move via
+  // the main window's Edit dialog) arrive here. Text-only mutation, per the
+  // no-re-render rule: the view/controls (and any user focus) stay untouched.
+  if (window.faceplate.onInfo) {
+    window.faceplate.onInfo(({ name, contextName }) => {
+      fp.name = name;
+      fp.contextName = contextName;
+      $('fpName').textContent = name;
+      $('fpKind').textContent = fp.title + ' · ' + contextName;
+      document.title = name;
+    });
   }
 }
 

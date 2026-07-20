@@ -185,4 +185,51 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
   ok('deriveState: perConn exposes each connection; merged view still present');
 }
 
+// ---- aggregate rules (TWO switches -> one bulb) ----
+{
+  const raw = yaml.load(fs.readFileSync(path.join(ROOT, 'widgets', 'bulb.yaml'), 'utf8'));
+  const { model } = validateDefinition(raw, PROFILES);
+  assert.equal(model.behavior.rules[0].aggregate, 'average');
+  ok('shipped bulb.yaml declares aggregate: average');
+
+  const inst = { systemId: 'SYS', nodeId: 'NODE', contextId: 'CTX' };
+  const base = `cns/SYS/nodes/NODE/contexts/CTX/consumer/padi.light/`;
+  // two controllers that disagree: one on, one off
+  const keys = {
+    [base + 'properties/cState']: '0',
+    [base + 'connections/aaa/properties/sOut']: '1',
+    [base + 'connections/bbb/properties/sOut']: '0',
+  };
+  const d = deriveState(keys, inst, model);
+  let actions = computeActions(model, d.state, {}, d.perConn);
+  assert.deepEqual(actions, [{ property: 'cState', value: '0.5' }]);
+  ok('aggregate average: one of two controllers on -> cState "0.5"');
+
+  // agreement collapses to the plain value and converges
+  keys[base + 'connections/bbb/properties/sOut'] = '1';
+  keys[base + 'properties/cState'] = '1';
+  const d2 = deriveState(keys, inst, model);
+  assert.equal(computeActions(model, d2.state, {}, d2.perConn).length, 0);
+  ok('aggregate average: agreement converges to "1" (no action)');
+
+  // single connection behaves exactly like the plain mirror rule
+  const keys1 = {
+    [base + 'properties/cState']: '0',
+    [base + 'connections/aaa/properties/sOut']: '1',
+  };
+  const d1 = deriveState(keys1, inst, model);
+  assert.deepEqual(computeActions(model, d1.state, {}, d1.perConn), [{ property: 'cState', value: '1' }]);
+  ok('aggregate average: single connection = plain mirror');
+
+  // the validator refuses an unknown aggregate
+  const bad = validateDefinition({
+    widget: 'x', title: 'X',
+    capabilities: [{ profile: 'padi.light', role: 'consumer' }],
+    view: [{ type: 'value', bind: 'sOut' }],
+    behavior: { rules: [{ when: 'sOut', set: 'cState', aggregate: 'median' }] },
+  }, PROFILES);
+  assert.ok(!bad.ok && bad.errors.some((er) => er.includes('aggregate')));
+  ok('validator refuses unknown aggregate');
+}
+
 console.log(`\n✅ PASS — ${n} spec/engine checks.`);

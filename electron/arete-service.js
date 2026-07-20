@@ -303,6 +303,24 @@ export class AreteService extends EventEmitter {
     return { systemId: system.id, caps };
   }
 
+  /**
+   * Raw key write on the realm — the PER-CONNECTION channel. The Widget app
+   * uses this to write ONE connection's property
+   * (.../connections/<id>/properties/<prop>); the control plane mirrors such
+   * a write to the SAME connection at the peer end ONLY (verified live),
+   * unlike a capability-level put which broadcasts to every connection.
+   * Guarded to cns/ keys so a bug can never write outside the namespace.
+   */
+  async putKey(key, value) {
+    if (!this.#client || !this.#client.isOpen()) {
+      throw new Error('Not connected.');
+    }
+    if (typeof key !== 'string' || !key.startsWith('cns/')) {
+      throw new Error('Refusing to write a non-cns key.');
+    }
+    return this.#client.put(key, String(value));
+  }
+
   #startStatusPolling() {
     this.#stopStatusPolling();
     // stats() reads a cache the receiver thread fills; cheap to poll.

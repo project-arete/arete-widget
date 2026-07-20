@@ -25,5 +25,7 @@ behavior:
     cState: "0"
     cLabel: Virtual Bulb
   rules:
-    - when: sOut        # auto-actualize: do what the controller says…
-      set: cState       # …and report that we did it
+    - when: sOut        # auto-actualize: do what the controllers say…
+      set: cState       # …and report it back
+      aggregate: average # 2+ controllers disagreeing -> report the average
+                         # (one of two switches on => cState "0.5")

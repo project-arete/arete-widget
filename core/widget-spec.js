@@ -261,6 +261,16 @@ export function validateDefinition(raw, profileJsons) {
           rule.map = {};
           for (const k in r.map) rule.map[String(k)] = String(r.map[k]);
         }
+        if (r.aggregate != null) {
+          const agg = String(r.aggregate).trim();
+          // Aggregates compute the input across ALL connections' values of
+          // `when` (numeric only; non-numeric falls back to the merged view).
+          if (!['average', 'min', 'max'].includes(agg)) {
+            e(`${where}: \`aggregate:\` must be one of average, min, max.`);
+            return;
+          }
+          rule.aggregate = agg;
+        }
         behavior.rules.push(rule);
       });
     }

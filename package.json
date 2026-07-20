@@ -1,7 +1,7 @@
 {
   "name": "arete-widget",
   "version": "0.1.2",
-  "description": "Arete Widget \u2014 create virtual widgets from YAML definitions and let them live on a CNS/CP realm. Each widget declares CP capabilities and renders a faceplate window in lieu of the physical device.",
+  "description": "Arete Widget — create virtual widgets from YAML definitions and let them live on a CNS/CP realm. Each widget declares CP capabilities and renders a faceplate window in lieu of the physical device.",
   "author": "Anto <anto@padi.io>",
   "license": "(MIT OR Apache-2.0)",
   "private": true,
@@ -19,6 +19,7 @@
     "dist:linux": "electron-builder --linux",
     "pack": "electron-builder --dir",
     "test:ui": "node scripts/test-ui.js",
+    "test:faceplate": "node scripts/test-faceplate.js",
     "test:library": "node scripts/test-library.js",
     "test:propagate": "node scripts/test-propagate.js"
   },
@@ -29,7 +30,7 @@
   "devDependencies": {
     "electron": "^32.0.0",
     "electron-builder": "^25.0.5",
-    "jsdom": "^25.0.0"
+    "jsdom": "^25.0.1"
   },
   "build": {
     "appId": "io.padi.arete.widget",

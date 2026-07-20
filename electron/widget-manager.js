@@ -440,8 +440,9 @@ export class WidgetManager extends EventEmitter {
     live.perConn = perConn;
     live.peers = peers;
 
-    // Auto-actualize: converge on the declared rules.
-    const actions = computeActions(def.model, state, live.pending);
+    // Auto-actualize: converge on the declared rules (perConn feeds
+    // aggregate rules, e.g. cState = average of sOut across connections).
+    const actions = computeActions(def.model, state, live.pending, perConn);
     for (const a of actions) {
       this.#put(inst, def.model, a.property, a.value).catch((e) =>
         this.#log('error', `Auto-actualize put failed for "${inst.name}".${a.property}: ${e.message || e}`)
@@ -473,13 +474,43 @@ export class WidgetManager extends EventEmitter {
     await cap.put(prop, String(value));
   }
 
-  /** A user action from a faceplate (toggle click, field edit). */
-  async putProperty(instanceId, prop, value) {
+  // Per-connection write: sets ONE connection's property. The control plane
+  // mirrors it to the same connection at the peer end only — this is how a
+  // faceplate with a peer selected controls JUST that peer. Note the widget's
+  // own capability value is untouched, so connections may now legitimately
+  // disagree — the faceplate shows that as 'mixed' in the All view.
+  async #putConn(inst, model, prop, value, connId) {
+    const live = this.#live.get(inst.id);
+    if (!live) throw new Error('Widget is not attached (not connected).');
+    const r = model.resolve[prop];
+    if (!r || !model.writable.includes(prop)) {
+      throw new Error(`Property "${prop}" is not writable by this widget.`);
+    }
+    if (!(live.peers || []).some((p) => p.connId === connId)) {
+      throw new Error('Unknown connection for this widget.');
+    }
+    const key =
+      `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}` +
+      `/${r.role}/${r.profile}/connections/${connId}/properties/${prop}`;
+    await this.#service.putKey(key, String(value));
+    // Optimistic per-connection echo so the faceplate reacts instantly.
+    live.perConn = {
+      ...(live.perConn || {}),
+      [connId]: { ...((live.perConn || {})[connId] || {}), [prop]: String(value) },
+    };
+    this.#log('info', `⇢ ${inst.name}: ${prop} → "${value}" (this connection only).`);
+  }
+
+  /** A user action from a faceplate (toggle click, field edit).
+   *  With connId: scoped to that one connection; without: capability-level
+   *  put, broadcast by the control plane to every connection. */
+  async putProperty(instanceId, prop, value, connId = null) {
     const inst = this.#instances.find((i) => i.id === instanceId);
     if (!inst) throw new Error('Unknown widget instance.');
     const def = this.#defs.get(inst.widgetId);
     if (!def || !def.ok) throw new Error('Widget definition unavailable.');
-    await this.#put(inst, def.model, prop, value);
+    if (connId) await this.#putConn(inst, def.model, prop, value, connId);
+    else await this.#put(inst, def.model, prop, value);
     const live = this.#live.get(instanceId);
     // Optimistic push so the faceplate reacts instantly; the echo confirms.
     this.emit('state', {

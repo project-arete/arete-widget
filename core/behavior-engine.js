@@ -59,17 +59,45 @@ export function deriveState(keys, inst, model) {
   return { state, connections: allConnIds.length, perConn };
 }
 
+// Aggregate a rule's input across ALL connections (perConn). Numeric only:
+// any non-numeric value, or no connection carrying the property, falls back
+// to the merged view (i.e. plain rule behavior). Rounded to 3 decimals so
+// float noise never leaks onto the realm ("0.5", not "0.5000000001").
+function aggregateInput(rule, state, perConn) {
+  const vals = [];
+  for (const id in perConn) {
+    const v = perConn[id][rule.when];
+    if (v === undefined || v === null || v === '') continue;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return state[rule.when]; // non-numeric — merged view
+    vals.push(n);
+  }
+  if (!vals.length) return state[rule.when]; // no connection carries it yet
+  let out;
+  switch (rule.aggregate) {
+    case 'average': out = vals.reduce((a, b) => a + b, 0) / vals.length; break;
+    case 'min': out = Math.min(...vals); break;
+    case 'max': out = Math.max(...vals); break;
+    default: return state[rule.when];
+  }
+  return String(Math.round(out * 1000) / 1000);
+}
+
 /**
  * Compute the puts needed to converge on the widget's behavior rules.
  * @param {object} model validated widget model ({behavior:{rules}})
  * @param {Object<string,string>} state derived state
  * @param {Object<string,string>} pending puts already in flight (prop -> value)
+ * @param {Object<string,Object<string,string>>} [perConn] connId -> that
+ *   connection's properties — required for rules with `aggregate:` (a rule
+ *   like "cState = average(sOut) across connections"; e.g. one of two
+ *   controllers on -> "0.5"). Plain rules ignore it.
  * @returns {Array<{property:string, value:string}>}
  */
-export function computeActions(model, state, pending = {}) {
+export function computeActions(model, state, pending = {}, perConn = {}) {
   const actions = [];
   for (const rule of model.behavior.rules) {
-    const input = state[rule.when];
+    const input = rule.aggregate ? aggregateInput(rule, state, perConn) : state[rule.when];
     if (input === undefined || input === null) continue; // nothing to react to yet
     const out = rule.map ? (rule.map[String(input)] ?? String(input)) : String(input);
     if (state[rule.set] === out) continue;      // already converged
