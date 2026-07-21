@@ -98,6 +98,18 @@ try {
   if (leaked) throw new Error("Sender A's connection carries Sender B's response — addressing failed");
   console.log('   no cross-talk between connections ✔');
 
+  // The rtt primitive must have clocked the round trip on each sender's
+  // connection: send (broadcast) → responder reply rule → addressed echo back.
+  const rttA = Object.values((manager.getInstance(sendA.id).rtt || {}).response || {});
+  const rttB = Object.values((manager.getInstance(sendB.id).rtt || {}).response || {});
+  if (rttA.length !== 1 || rttB.length !== 1) {
+    throw new Error(`expected one measured connection per sender, got A=${rttA.length} B=${rttB.length}`);
+  }
+  if (!(rttA[0] > 0 && rttA[0] < 60000) || !(rttB[0] > 0 && rttB[0] < 60000)) {
+    throw new Error(`implausible round-trip times: A=${rttA[0]}ms B=${rttB[0]}ms`);
+  }
+  console.log(`   round trips measured ✔  Sender A: ${rttA[0]} ms · Sender B: ${rttB[0]} ms`);
+
   // The responder's own capability must NOT broadcast `response`
   // (non-propagated: written per-connection only, never at capability level).
   const r = manager.getInstance(resp.id);

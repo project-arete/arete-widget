@@ -268,6 +268,33 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
   assert.ok(!bad.ok && bad.errors.some((er) => er.includes('reply')));
   ok('validator refuses reply: values other than true');
 
+  // ---- the rtt view primitive ----
+  const rttBase = {
+    widget: 'x', title: 'X',
+    capabilities: [{ profile: 'padi.ping', role: 'provider' }],
+  };
+  const good = validateDefinition({
+    ...rttBase,
+    view: [{ type: 'rtt', send: 'sendP', echo: 'response', caption: 'round trip' }],
+  }, PR2);
+  assert.ok(good.ok, good.errors.join('; '));
+  assert.deepEqual(good.model.view[0], { type: 'rtt', caption: 'round trip', send: 'sendP', echo: 'response' });
+  ok('rtt primitive validates (send writable, echo readable)');
+
+  const rttNoSend = validateDefinition({ ...rttBase, view: [{ type: 'rtt', echo: 'response' }] }, PR2);
+  assert.ok(!rttNoSend.ok && rttNoSend.errors.some((er) => er.includes('send')));
+  ok('rtt refuses a missing send:');
+
+  // the sender role may not write `response` (consumer-side prop) — so a
+  // sender using response as SEND must be rejected, as must send===echo
+  const rttBadSend = validateDefinition({ ...rttBase, view: [{ type: 'rtt', send: 'response', echo: 'sendP' }] }, PR2);
+  assert.ok(!rttBadSend.ok);
+  ok('rtt refuses a send: the widget cannot write');
+
+  const rttSame = validateDefinition({ ...rttBase, view: [{ type: 'rtt', send: 'sendP', echo: 'sendP' }] }, PR2);
+  assert.ok(!rttSame.ok && rttSame.errors.some((er) => er.includes('different')));
+  ok('rtt refuses send === echo');
+
   // ENGINE: reply rule answers per connection, on that connection
   const raw = yaml.load(fs.readFileSync(path.join(ROOT, 'widgets', 'ping-responder.yaml'), 'utf8'));
   const { model } = validateDefinition(raw, PR2);

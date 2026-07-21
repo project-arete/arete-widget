@@ -255,6 +255,7 @@ export class WidgetManager extends EventEmitter {
         connections: live ? live.connections : 0,
         peers: live ? live.peers || [] : [],
         perConn: live ? live.perConn || {} : {},
+        rtt: live ? live.rttTimes || {} : {},
         widgetOk: !!(def && def.ok),
         widgetTitle: def ? def.title : inst.widgetId,
       };
@@ -393,7 +394,7 @@ export class WidgetManager extends EventEmitter {
       capabilities: def.model.capabilities.map((c) => ({ profile: c.profile, role: c.role })),
     });
     inst.systemId = systemId;
-    this.#live.set(inst.id, { caps, pending: {}, state: {}, connections: 0 });
+    this.#live.set(inst.id, { caps, pending: {}, state: {}, connections: 0, rttProbes: {}, rttTimes: {} });
 
     // First-ever attach: issue the definition's init puts.
     if (!inst.initDone) {
@@ -440,8 +441,10 @@ export class WidgetManager extends EventEmitter {
     const { state, connections, perConn } = deriveState(keys, inst, def.model);
     reconcilePending(state, live.pending, perConn);
     const peers = this.#peersFor(inst, def.model, keys);
+    const rttChanged = this.#rttCollect(live, def.model, perConn);
 
     const changed =
+      rttChanged ||
       connections !== live.connections ||
       JSON.stringify(state) !== JSON.stringify(live.state) ||
       JSON.stringify(perConn) !== JSON.stringify(live.perConn || {}) ||
@@ -476,8 +479,50 @@ export class WidgetManager extends EventEmitter {
         connections,
         peers,
         perConn,
+        rtt: live.rttTimes || {},
       });
     }
+  }
+
+  // ---- round-trip measurement (the `rtt` view primitive) ----
+  // A write to a probe's `send:` property stamps t0; the clock stops per
+  // CONNECTION when that connection's `echo:` comes back carrying the same
+  // value. Times live only in the app — nothing extra crosses the wire.
+  #rttStamp(inst, model, prop, value, connId = null) {
+    const live = this.#live.get(inst.id);
+    if (!live) return;
+    for (const p of model.view) {
+      if (p.type !== 'rtt' || p.send !== prop) continue;
+      live.rttProbes = live.rttProbes || {};
+      live.rttProbes[connId ? `${p.echo}|${connId}` : p.echo] = { value: String(value), t0: Date.now() };
+      // A fresh probe restarts the clock for the connections it covers.
+      const times = { ...(live.rttTimes || {}) };
+      if (connId) {
+        if (times[p.echo]) { times[p.echo] = { ...times[p.echo] }; delete times[p.echo][connId]; }
+      } else {
+        times[p.echo] = {};
+      }
+      live.rttTimes = times;
+    }
+  }
+
+  #rttCollect(live, model, perConn) {
+    let changed = false;
+    const probes = live.rttProbes || {};
+    for (const p of model.view) {
+      if (p.type !== 'rtt') continue;
+      for (const connId in perConn) {
+        const v = perConn[connId] ? perConn[connId][p.echo] : undefined;
+        if (v === undefined) continue;
+        // A connection-scoped probe (peer-chip send) beats the broadcast one.
+        const probe = probes[`${p.echo}|${connId}`] || probes[p.echo];
+        if (!probe || v !== probe.value) continue;
+        live.rttTimes = live.rttTimes || {};
+        const t = (live.rttTimes[p.echo] = live.rttTimes[p.echo] || {});
+        if (t[connId] === undefined) { t[connId] = Date.now() - probe.t0; changed = true; }
+      }
+    }
+    return changed;
   }
 
   async #put(inst, model, prop, value) {
@@ -490,6 +535,7 @@ export class WidgetManager extends EventEmitter {
     const cap = live.caps[`${r.role}|${r.profile}`];
     if (!cap) throw new Error(`No live ${r.role} handle for ${r.profile}.`);
     live.pending[prop] = String(value);
+    this.#rttStamp(inst, model, prop, value); // clock starts at the write
     await cap.put(prop, String(value));
   }
 
@@ -511,6 +557,7 @@ export class WidgetManager extends EventEmitter {
     const key =
       `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}` +
       `/${r.role}/${r.profile}/connections/${connId}/properties/${prop}`;
+    this.#rttStamp(inst, model, prop, value, connId); // clock starts at the write
     await this.#service.putKey(key, String(value));
     // Optimistic per-connection echo so the faceplate reacts instantly.
     live.perConn = {
@@ -538,6 +585,7 @@ export class WidgetManager extends EventEmitter {
       connections: live.connections,
       peers: live.peers || [],
       perConn: live.perConn || {},
+      rtt: live.rttTimes || {},
     });
   }
 }

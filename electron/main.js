@@ -331,11 +331,11 @@ function wireEvents() {
       });
     }
   });
-  manager.on('state', ({ id, state, connections, peers, perConn }) => {
+  manager.on('state', ({ id, state, connections, peers, perConn, rtt }) => {
     toMain('widget:state', { id, state, connections, peers });
     const fp = faceplates.get(id);
     if (fp && !fp.isDestroyed()) {
-      fp.webContents.send('widget:state', { id, state, connections, peers, perConn });
+      fp.webContents.send('widget:state', { id, state, connections, peers, perConn, rtt });
     }
   });
 }
@@ -527,6 +527,7 @@ app.whenReady().then(async () => {
       connections: inst.connections,
       peers: inst.peers || [],
       perConn: inst.perConn || {},
+      rtt: inst.rtt || {},
       attached: inst.attached,
       pinned: !!(readFpBounds()[inst.id] || {}).pinned,
       theme: settings.readSettings().theme || 'dark',
