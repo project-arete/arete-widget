@@ -1,8 +1,9 @@
 // Drive the REAL renderer/app.js in jsdom with a stubbed window.arete bridge.
-// Regression-tests the tile-grid home page + add/edit dialog (UI v21):
-// open dialog from the + tile, filter the picker, configure (New/Join context,
-// selection survival across live keys pushes), create, and the edit flow
-// (⋯ menu → Edit → keep-context save via widgetUpdate).
+// Regression-tests the tile-grid home page + add/edit dialog (UI v31):
+// open dialog from the + tile, filter the picker, configure (Join is the
+// DEFAULT when a complementary context exists; a NEW context requires a typed
+// name — never prefixed from the widget), create, the unbound tile badge,
+// and the edit flow (⋯ menu → Edit → keep-context save via widgetUpdate).
 import fs from 'node:fs';
 let JSDOM;
 try {
@@ -121,6 +122,13 @@ assert('only complementary contexts listed', sel?.options.length === 1);
 assert('matched ctx is the provider one', sel?.options[0]?.value === 'Ctx000000000000000001');
 assert('option mentions the partner', (sel?.options[0]?.textContent || '').includes('1 padi.light provider'));
 
+// 4a) v31: with a match on the realm, JOIN is the DEFAULT — and the
+// new-context name is never prefilled from the widget title
+assert('join is the default when a match exists', joinRadio.checked && !$('#af-ctx-new').checked);
+assert('join select visible by default', !$('#af-ctxsel-row').hidden);
+assert('ctx name has no widget-title prefill', $('#af-ctxname').value === '');
+assert('option flags the unbound partner', (sel?.options[0]?.textContent || '').includes('unbound'));
+
 // 5) Join existing
 joinRadio.checked = true;
 $('#af-ctx-new').checked = false;
@@ -141,6 +149,27 @@ await new Promise((r) => setTimeout(r, 20));
 assert('widgetAdd called with contextId', !!(window.__added && window.__added.contextId));
 assert('faceplate opened', window.__opened === 'inst1');
 assert('dialog closed after create', $('#dlgOverlay').hidden);
+
+// 7a) v31: a NEW context requires a typed name — no silent default
+window.__added = null;
+$('[data-plus]').click();
+$('#dlgSearch').value = ''; fire($('#dlgSearch'), 'input');
+$('#dlgPickList [data-pick="bulb"]').click();
+$('#af-ctx-new').checked = true;
+$('#af-ctx-join').checked = false;
+fire($('#af-ctx-new'), 'change');
+assert('new-context name starts empty', $('#af-ctxname').value === '');
+$('#af-create').click();
+await new Promise((r) => setTimeout(r, 20));
+assert('empty ctx name blocks create', window.__added === null && !$('#dlgOverlay').hidden);
+assert('missing name field flagged', $('#af-ctxname').classList.contains('field-missing'));
+$('#af-ctxname').value = 'Kitchen Lights';
+fire($('#af-ctxname'), 'input');
+assert('typing clears the flag', !$('#af-ctxname').classList.contains('field-missing'));
+$('#af-create').click();
+await new Promise((r) => setTimeout(r, 20));
+assert('typed ctx name creates', window.__added?.contextName === 'Kitchen Lights');
+assert('dialog closed after named create', $('#dlgOverlay').hidden);
 
 // 8) empty-realm open: join disabled with hint, recovers when keys arrive
 for (const cb of subs.keys) cb({});
@@ -174,6 +203,23 @@ assert('tile shows peer NODE name', (tile?.textContent || '').includes('Switch N
 window.__opened = null;
 tile.click();
 assert('tile click opens faceplate', window.__opened === 'instA');
+
+// 10a) v31: a zero-connection instance is "awaiting broker" during the grace
+// period, then badged "unbound" with a hint naming the missing partner role
+{
+  const INST0 = { ...INST, id: 'instB', name: 'Lonely', connections: 0, peers: [], contextId: 'CtxLonely', contextName: 'Lonely Ctx' };
+  for (const cb of subs.winst) cb([INST, INST0]);
+  let tileB = $('.tile[data-open="instB"]');
+  assert('grace period shows awaiting broker', (tileB?.textContent || '').includes('awaiting broker'));
+  const origNow = window.Date.now.bind(window.Date);
+  window.Date.now = () => origNow() + 60000; // fast-forward past the grace
+  for (const cb of subs.winst) cb([INST, INST0]);
+  tileB = $('.tile[data-open="instB"]');
+  assert('stuck instance badged unbound', !!tileB?.querySelector('.chip.bad') && (tileB.textContent || '').includes('unbound'));
+  assert('badge hint names the missing partner', (tileB?.querySelector('.chip.bad')?.title || '').includes('provider of padi.light'));
+  window.Date.now = origNow;
+  for (const cb of subs.winst) cb([INST]); // restore for the sections below
+}
 
 // 11) ⋯ menu → Edit: pre-filled, type locked, keep-context save
 $('[data-menu="instA"]').click();
