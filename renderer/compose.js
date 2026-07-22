@@ -117,12 +117,17 @@
   async function refresh(rebuildPreview = true) {
     check = await window.arete.composeCheck(cur.def);
     renderStatus();
-    renderYaml();
-    renderCaps();      // needs check.caps (prop tables)
-    renderViewList();  // bind labels may change validity
-    renderInspector();
-    renderRules();
-    renderMock();
+    renderYaml();      // guards itself (skips while the textarea is focused)
+    // The re-render rule: NEVER rebuild a panel the user is typing in — the
+    // debounced refresh lands mid-word and replaces the focused input
+    // (renderRules and renderYaml already guard; these panels must too).
+    // Direct calls (picker search, inspector edits) still re-render at will.
+    const focused = document.activeElement;
+    if (!ui.caps.contains(focused)) renderCaps();          // needs check.caps (prop tables)
+    renderViewList();  // bind labels may change validity (rows hold no typing focus)
+    if (!ui.inspector.contains(focused)) renderInspector();
+    renderRules();     // has its own focus guard
+    if (!ui.mock.contains(focused)) renderMock();
     renderIdentityWarnings();
     if (rebuildPreview) await buildPreview();
   }
@@ -1128,7 +1133,13 @@
       const close = doc.getElementById('fpClose');
       if (pin) pin.hidden = true;
       if (close) close.hidden = true;
-      // size the frame to its content
+      // size the frame to its content. faceplate.css sets html,body height:100%
+      // (fills the real widget window) — inside the iframe that makes
+      // scrollHeight track the FRAME height, so measuring it and adding 8
+      // grew the preview by 8px on every call (every keystroke). Neutralize
+      // before measuring so scrollHeight is the intrinsic content height.
+      doc.documentElement.style.height = 'auto';
+      doc.body.style.height = 'auto';
       const h = Math.max(260, Math.min(600, doc.body.scrollHeight + 8));
       ui.preview.style.height = h + 'px';
     } catch (_) {}

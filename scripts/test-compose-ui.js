@@ -179,6 +179,21 @@ check('lamp lands on the canvas stack', [...$('cmpViewList').querySelectorAll('.
 check('still a valid widget after the drop', $('cmpStatus').classList.contains('ok'));
 check('inspector shows the lamp fields', $('cmpInspector').textContent.includes('lamp'));
 
+// the re-render rule (UI v42): the debounced refresh must NOT rebuild the
+// panel being typed in — that replaced the focused input mid-word.
+{
+  const cap = $('cmpInspector').querySelector('[data-f="caption"]');
+  cap.focus();
+  cap.value = 'My la';
+  cap.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(600); // debounce + refresh land while still focused
+  const cap2 = $('cmpInspector').querySelector('[data-f="caption"]');
+  check('typing in the inspector keeps focus through the refresh',
+    document.activeElement === cap && cap2 === cap && cap.value === 'My la');
+  cap.blur();
+  await sleep(50);
+}
+
 check('lamp inspector has NO read-only checkbox (already display-only)', !$('cmpInspector').querySelector('[data-f="readonly"]'));
 
 // drop a toggle — interactive, so the read-only override applies (UI v40)
