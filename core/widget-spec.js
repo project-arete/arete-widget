@@ -43,8 +43,12 @@ export const PRIMITIVES = ['lamp', 'toggle', 'value', 'label', 'field', 'meter',
  *    active connections; absent -> the value stays on the node's capability
  *    and NEVER reaches connections (peers cannot see it).
  *  - "required" present -> the property is required.
+ * Top-level "server"/"client" strings describe what each end IS in the use
+ * case the CP was designed for (e.g. server: "Landlord", client: "Tenant");
+ * they surface as roles.provider / roles.consumer so UIs can phrase the role
+ * choice concretely.
  * @param {object} profileJson raw JSON from cp.padi.io/profiles/<name>
- * @returns {{title:string, props:Object<string,{writer:'server'|'client', desc:string, propagate:boolean, required:boolean}>}|null}
+ * @returns {{title:string, roles:{provider:string, consumer:string}, props:Object<string,{writer:'server'|'client', desc:string, propagate:boolean, required:boolean}>}|null}
  */
 export function parseProfile(profileJson) {
   if (!profileJson || !Array.isArray(profileJson.versions) || !profileJson.versions.length) {
@@ -61,7 +65,11 @@ export function parseProfile(profileJson) {
       required: 'required' in pr,
     };
   }
-  return { title: profileJson.title || '', props };
+  const roles = {
+    provider: typeof profileJson.server === 'string' ? profileJson.server.trim() : '',
+    consumer: typeof profileJson.client === 'string' ? profileJson.client.trim() : '',
+  };
+  return { title: profileJson.title || '', roles, props };
 }
 
 /** Does `role` write `prop` under this profile? provider↔server, consumer↔client. */
@@ -151,7 +159,7 @@ export function validateDefinition(raw, profileJsons) {
       e(`Profile "${profile}" is NOT in the CP registry (cp.padi.io/profiles/${profile}) — refusing it.`);
       continue;
     }
-    capabilities.push({ profile, role, title: parsed.title, props: parsed.props });
+    capabilities.push({ profile, role, title: parsed.title, roles: parsed.roles, props: parsed.props });
   }
 
   // ---- bind resolution: bare property names must be unambiguous ----

@@ -593,6 +593,7 @@ app.whenReady().then(async () => {
         role,
         ok: !!parsed,
         title: parsed ? parsed.title : '',
+        roles: parsed ? parsed.roles : { provider: '', consumer: '' },
         props: parsed ? parsed.props : {},
       };
     });
@@ -675,6 +676,7 @@ app.whenReady().then(async () => {
       comment: p.comment || '',
       company: p.company || '',
       modified: p.modified || '',
+      roles: parsed ? parsed.roles : { provider: '', consumer: '' },
       props: parsed ? parsed.props : null,
     };
   }).filter((p) => p.name);

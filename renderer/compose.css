@@ -197,8 +197,9 @@ button.danger { color: #e2635a; }
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-.cmp-pk-add { display: flex; gap: 8px; margin-top: 8px; }
-.cmp-pk-add button { font-size: 12px; padding: 4px 10px; }
+.cmp-pk-add { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.cmp-pk-add button { font-size: 12px; padding: 4px 10px; text-align: left; }
+.cmp-pk-roledesc { opacity: 0.75; font-weight: 400; }
 
 /* rule builder (Phase 3) */
 .cmp-initbox { margin-bottom: 8px; }

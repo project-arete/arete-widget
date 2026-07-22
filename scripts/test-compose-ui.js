@@ -53,7 +53,7 @@ async function fetchIndex() {
     for (const p of list) if (p && p.name) PROFILES[p.name] = p;
     return list.map((p) => {
       const parsed = parseProfile(p);
-      return { name: p.name, title: p.title || '', comment: p.comment || '', company: p.company || '', modified: p.modified || '', props: parsed ? parsed.props : null };
+      return { name: p.name, title: p.title || '', comment: p.comment || '', company: p.company || '', modified: p.modified || '', roles: parsed ? parsed.roles : { provider: '', consumer: '' }, props: parsed ? parsed.props : null };
     }).filter((p) => p.name);
   } catch (_) {
     return null;
@@ -96,7 +96,7 @@ window.arete = {
     const res = validateDefinition(raw, profiles);
     const caps = (Array.isArray(raw.capabilities) ? raw.capabilities : []).map((c) => {
       const parsed = parseProfile(profiles[c && c.profile]);
-      return { profile: c && c.profile, role: c && c.role, ok: !!parsed, title: parsed ? parsed.title : '', props: parsed ? parsed.props : {} };
+      return { profile: c && c.profile, role: c && c.role, ok: !!parsed, title: parsed ? parsed.title : '', roles: parsed ? parsed.roles : { provider: '', consumer: '' }, props: parsed ? parsed.props : {} };
     });
     return { ok: res.ok, errors: res.errors, model: res.model, raw, yaml: yaml.dump(orderDefinition(raw), { lineWidth: 120, noRefs: true }), caps };
   },
@@ -152,14 +152,18 @@ const rows0 = $('cmpPkList').querySelectorAll('.cmp-pk-row');
 check('search narrows to padi.light', rows0.length === 1 && rows0[0].textContent.includes('padi.light'));
 rows0[0].dispatchEvent(new window.Event('click', { bubbles: true }));
 await sleep(150);
-check('preview shows flag table with sOut', $('cmpCaps').querySelector('.cmp-pk-prev').textContent.includes('sOut'));
-const addBtn = [...$('cmpCaps').querySelectorAll('.cmp-pk-add button')].find((b) => b.textContent === 'Add as consumer');
+const prev = $('cmpCaps').querySelector('.cmp-pk-prev');
+check('preview asks for the role FIRST (no property table yet)', !!prev && !prev.textContent.includes('sOut'));
+check('role buttons carry the CP use-case descriptions', prev.textContent.includes('A Light being controlled') && prev.textContent.includes('A Controller'));
+const addBtn = [...$('cmpCaps').querySelectorAll('.cmp-pk-add button')].find((b) => b.textContent.startsWith('Add as consumer'));
 addBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
 await sleep(600);
 const capBox = $('cmpCaps').querySelector('.cmp-cap');
 check('capability row appears from the picker', !!capBox && capBox.querySelector('input').value === 'padi.light');
 check('draft becomes VALID with padi.light consumer', $('cmpStatus').classList.contains('ok'));
 check('registry props table lists sOut', $('cmpCaps').textContent.includes('sOut'));
+check('card shows role-resolved writable / read only (no propagate flag)',
+  $('cmpCaps').textContent.includes('writable') && $('cmpCaps').textContent.includes('read only') && !$('cmpCaps').textContent.includes('propagate'));
 
 // drop a lamp from the palette — should auto-bind to the first readable prop
 const lampBtn = [...$('cmpPalette').querySelectorAll('button')].find((b) => b.textContent === 'lamp');

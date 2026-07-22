@@ -316,17 +316,15 @@
     pickerError = res.ok ? '' : (res.error || 'registry unreachable');
   }
 
-  function pickerPropTable(props) {
-    const names = Object.keys(props || {});
-    if (!names.length) return '<span class="muted-note">no properties published</span>';
-    return names.map((n) => {
-      const p = props[n];
-      return `<span class="pn">${esc(n)}</span>` +
-        `<span class="cmp-flag">${p.writer === 'server' ? 'provider writes' : 'consumer writes'}</span>` +
-        (p.propagate ? '<span class="cmp-flag">propagate</span>' : '<span class="cmp-flag" title="not broadcast — crosses per-connection (addressed channel)">addressed</span>') +
-        (p.required ? '<span class="cmp-flag">required</span>' : '') +
-        (p.desc ? ` <span class="muted-note">${esc(p.desc)}</span>` : '');
-    }).join('<br/>');
+  // Role choice comes FIRST — a connection always has two ends, and which
+  // end this widget is decides what it may write. The CP's own use-case
+  // descriptions (client/server strings from the registry) phrase the choice
+  // concretely; properties are only listed AFTER the role is picked, on the
+  // capability card, as plain writable / read only.
+  function pickerRoleBtn(p, role, disabled) {
+    const desc = (p.roles && p.roles[role]) || '';
+    return `<button type="button" class="primary" data-role="${role}" ${disabled ? 'disabled' : ''}>` +
+      `Add as ${role}${desc ? ` <span class="cmp-pk-roledesc">(${esc(desc)})</span>` : ''}</button>`;
   }
 
   function renderPicker(host) {
@@ -368,10 +366,10 @@
         const dup = (role) => (cur.def.capabilities || []).some((c) => c.profile === p.name && c.role === role);
         prev.innerHTML = `
           ${p.comment ? `<p class="muted-note">${esc(p.comment)}${p.company ? ' · ' + esc(p.company) : ''}</p>` : ''}
-          <div class="cmp-cap-props">${pickerPropTable(p.props)}</div>
+          <p class="muted-note">Which end of the connection is this widget? Its properties are listed once the role is picked.</p>
           <div class="cmp-pk-add">
-            <button type="button" class="primary" data-role="consumer" ${!p.props || dup('consumer') ? 'disabled' : ''}>Add as consumer</button>
-            <button type="button" class="primary" data-role="provider" ${!p.props || dup('provider') ? 'disabled' : ''}>Add as provider</button>
+            ${pickerRoleBtn(p, 'consumer', !p.props || dup('consumer'))}
+            ${pickerRoleBtn(p, 'provider', !p.props || dup('provider'))}
           </div>`;
         prev.querySelectorAll('[data-role]').forEach((b) => b.addEventListener('click', () => {
           cur.def.capabilities = Array.isArray(cur.def.capabilities) ? cur.def.capabilities : [];
@@ -422,9 +420,9 @@
       box.innerHTML = `
         <div class="cmp-cap-head">
           <input type="text" value="${esc(c.profile || '')}" placeholder="padi.light" spellcheck="false" />
-          <select>
-            <option value="consumer"${c.role === 'consumer' ? ' selected' : ''}>consumer</option>
-            <option value="provider"${c.role === 'provider' ? ' selected' : ''}>provider</option>
+          <select title="Which end of the connection this widget is — flips what it may write">
+            <option value="consumer"${c.role === 'consumer' ? ' selected' : ''}>consumer${inf.roles && inf.roles.consumer ? ' — ' + esc(inf.roles.consumer) : ''}</option>
+            <option value="provider"${c.role === 'provider' ? ' selected' : ''}>provider${inf.roles && inf.roles.provider ? ' — ' + esc(inf.roles.provider) : ''}</option>
           </select>
           <button type="button" class="ghost danger" title="Remove capability">✕</button>
         </div>
@@ -466,9 +464,10 @@
       const p = inf.props[n];
       const writes = (role === 'provider') === (p.writer === 'server');
       return `<span class="pn">${esc(n)}</span>` +
-        (writes ? '<span class="cmp-flag w">you write</span>' : '<span class="cmp-flag">peer writes</span>') +
-        (p.propagate ? '<span class="cmp-flag">propagate</span>' : '<span class="cmp-flag" title="not broadcast — crosses per-connection (addressed channel)">addressed</span>') +
-        (p.required ? '<span class="cmp-flag">required</span>' : '');
+        (writes ? '<span class="cmp-flag w" title="your role writes this property">writable</span>'
+                : '<span class="cmp-flag" title="written by the other end of the connection">read only</span>') +
+        (p.required ? '<span class="cmp-flag">required</span>' : '') +
+        (p.desc ? ` <span class="muted-note">${esc(p.desc)}</span>` : '');
     }).join('<br/>');
   }
 
@@ -590,7 +589,7 @@
     const bindSel = (cu, field, writableOnly) => {
       const opts = props
         .filter((p) => (writableOnly ? p.writable : true))
-        .map((p) => `<option value="${esc(p.name)}"${cu === p.name ? ' selected' : ''}>${esc(p.name)} (${esc(p.profile)}${p.writable ? ' · you write' : ''})</option>`)
+        .map((p) => `<option value="${esc(p.name)}"${cu === p.name ? ' selected' : ''}>${esc(p.name)} (${esc(p.profile)}${p.writable ? ' · writable' : ''})</option>`)
         .join('');
       const custom = cu && !props.some((p) => p.name === cu)
         ? `<option value="${esc(cu)}" selected>${esc(cu)} (unknown property)</option>` : '';
