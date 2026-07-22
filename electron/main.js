@@ -525,7 +525,12 @@ app.whenReady().then(async () => {
     return {
       id: inst.id,
       name: inst.name,
-      contextName: inst.contextName,
+      contextName: (inst.contexts || []).length > 1
+        ? `${inst.contextName} +${inst.contexts.length - 1}`
+        : inst.contextName,
+      // Every context this widget is present in — >1 flips the faceplate's
+      // pill labels from peer names to context (place) names.
+      contexts: inst.contexts || [{ id: inst.contextId, name: inst.contextName }],
       widgetId: inst.widgetId,
       title: model ? model.title : inst.widgetId,
       icon: model ? model.icon || '' : '',

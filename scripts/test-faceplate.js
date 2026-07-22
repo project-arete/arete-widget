@@ -238,6 +238,84 @@ assert('lease selection survived independently (still l2)',
   w2.__actions.length === 5 && w2.__actions[4].connId === 'l2');
 
 if (w2.__errors.length) failures.push('part2 uncaught errors: ' + w2.__errors);
+
+// ===========================================================================
+// PART 3 — multi-context attach (UI v43). A LANDLORD widget: one node, its
+// lease provider capability declared into each unit's context. Pills label
+// by PLACE (the context name), and a pill-scoped write is routed by connId —
+// the manager maps connId -> context, the faceplate needn't know the paths.
+// ===========================================================================
+console.log('\n— part 3: multi-context pills (landlord across suites) —');
+const dom3 = new JSDOM(html, { runScripts: 'outside-only', url: 'file:///faceplate.html', pretendToBeVisual: true });
+const w3 = dom3.window;
+const d3 = w3.document;
+const subs3 = { state: [], theme: [], info: [] };
+w3.__actions = [];
+const PEERS_MC = [
+  { connId: 't1', system: 'Acme', node: 'Matt', profile: 'padi.lease.basic', ctxId: 'CA', context: 'Suite 200' },
+  { connId: 't2', system: 'Tina Co', node: 'Tina', profile: 'padi.lease.basic', ctxId: 'CB', context: 'Suite 310' },
+];
+w3.faceplate = {
+  instanceId: 'instC',
+  load: async () => ({
+    id: 'instC',
+    name: 'Maple House',
+    contextName: 'Suite 200 +1',
+    contexts: [{ id: 'CA', name: 'Suite 200' }, { id: 'CB', name: 'Suite 310' }],
+    widgetId: 'landlord',
+    title: 'Landlord',
+    icon: '🏢',
+    color: '',
+    view: [
+      { type: 'field', bind: 'rate', caption: 'rate' },
+      { type: 'value', bind: 'rent', caption: 'rent' },
+    ],
+    writable: ['rate'],
+    localOnly: [],
+    bindProfile: { rate: 'padi.lease.basic', rent: 'padi.lease.basic' },
+    hasRules: false,
+    state: { rate: '30' },
+    connections: 2,
+    peers: PEERS_MC,
+    perConn: { t1: { rent: '4500' }, t2: { rent: '5200' } },
+    attached: true,
+    pinned: false,
+    theme: 'dark',
+  }),
+  action: async (property, value, connId) => w3.__actions.push({ property, value, connId: connId ?? null }),
+  setPinned: async (p) => p,
+  adjustHeight: () => {},
+  onState: (cb) => subs3.state.push(cb),
+  onTheme: (cb) => subs3.theme.push(cb),
+  onInfo: (cb) => subs3.info.push(cb),
+};
+w3.__errors = [];
+w3.addEventListener('error', (e) => w3.__errors.push(String(e.message)));
+w3.eval(fpjs);
+await new Promise((r) => setTimeout(r, 50));
+const q3 = (sel) => [...d3.querySelectorAll(sel)];
+
+assert('multi-context strip appears at 2 suite connections', !d3.getElementById('fpStrip').hidden);
+assert('pills label by PLACE (context names, not peer nodes)',
+  q3('#fpStrip .peer').map((p) => p.textContent).join('|') === 'All · 2|Suite 200|Suite 310');
+assert('kind line shows the multi-context title', d3.getElementById('fpKind').textContent.includes('Suite 200 +1'));
+assert('All view shows per-suite disagreement as mixed', q3('.value')[0].textContent === 'mixed');
+q3('#fpStrip .peer')[2].click(); // Suite 310
+assert('suite pill scopes the read', q3('.value')[0].textContent === '5200');
+const rateInput = d3.querySelector('.field input');
+rateInput.value = '33';
+rateInput.dispatchEvent(new w3.Event('blur'));
+await new Promise((r) => setTimeout(r, 10));
+assert('suite-scoped write addresses that suite\'s connection',
+  w3.__actions.length === 1 && w3.__actions[0].connId === 't2' && w3.__actions[0].property === 'rate');
+q3('#fpStrip .peer')[0].click(); // back to All
+rateInput.value = '35';
+rateInput.dispatchEvent(new w3.Event('blur'));
+await new Promise((r) => setTimeout(r, 10));
+assert('All-view write is unscoped (manager fans out per context)',
+  w3.__actions.length === 2 && w3.__actions[1].connId === null);
+
+if (w3.__errors.length) failures.push('part3 uncaught errors: ' + w3.__errors);
 if (failures.length) { console.error('\n❌ FAIL —', failures.join('; ')); process.exit(1); }
-console.log('\n✅ PASS — scoped control, mixed own-props, identity sync, and per-CP pill groups all work.');
+console.log('\n✅ PASS — scoped control, mixed own-props, identity sync, per-CP pill groups, and multi-context place pills all work.');
 process.exit(0);

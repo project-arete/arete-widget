@@ -13,7 +13,8 @@ let fp = null;              // bootstrap payload
 let state = {};             // the EFFECTIVE view (merged, or one connection's)
 let merged = {};            // merged state as pushed by main
 let perConn = {};           // connId -> that connection's property map
-let peers = [];             // [{connId, system, node, profile}]
+let peers = [];             // [{connId, system, node, profile, ctxId?, context?}]
+let multiCtx = false;       // instance present in 2+ contexts — pills label by PLACE
 let selByProfile = {};      // profile -> 'all' | connId (independent pill groups per CP)
 let groupsList = [];        // [{profile, peers:[...]}] — only CPs with 2+ OWN connections
 let bindProfile = {};       // bind -> owning profile (from the bootstrap payload)
@@ -66,8 +67,8 @@ function peersLine() {
   // With pill groups visible the footer line is redundant.
   if (!peers.length || groupsList.length) { el.textContent = ''; return; }
   el.textContent = peers.length === 1
-    ? `bound to ${peers[0].system} · ${peers[0].node}`
-    : 'bound to ' + peers.map((p) => p.node).join(' · ');
+    ? `bound to ${peers[0].system} · ${peers[0].node}` + (multiCtx && peers[0].context ? ` (${peers[0].context})` : '')
+    : 'bound to ' + peers.map((p) => (multiCtx && p.context ? `${p.node} (${p.context})` : p.node)).join(' · ');
 }
 
 // The peer strip: appears only at 2+ connections. "All" aggregates; a peer
@@ -119,7 +120,9 @@ function renderStrip() {
   // One compact group per multi-connection CP, all on one wrapping row.
   // Selection is INDEPENDENT per group; reads/writes of a property resolve
   // against its OWN CP's selection only. Pill label = NODE name (system
-  // names are often identical across peers); full detail in the tooltip.
+  // names are often identical across peers) — except on a MULTI-CONTEXT
+  // widget, where the pill is the PLACE: the context name is exactly the
+  // human label ("Suite 200"), the peer node goes in the tooltip.
   for (const g of groupsList) {
     const grp = el('span', 'peer-group');
     if (groupsList.length > 1) {
@@ -128,7 +131,11 @@ function renderStrip() {
       grp.appendChild(tag);
     }
     grp.appendChild(mk(g.profile, 'all', `All · ${g.peers.length}`, `aggregate view of every ${g.profile} connection`));
-    for (const p of g.peers) grp.appendChild(mk(g.profile, p.connId, p.node, `${p.system} · ${p.node} (${p.profile})`));
+    for (const p of g.peers) {
+      const label = multiCtx && p.context ? p.context : p.node;
+      const title = `${p.system} · ${p.node} (${p.profile})` + (p.context ? ` — in ${p.context}` : '');
+      grp.appendChild(mk(g.profile, p.connId, label, title));
+    }
     strip.appendChild(grp);
   }
 }
@@ -499,6 +506,7 @@ async function init() {
     document.body.innerHTML = '<p style="padding:20px;color:#9aa6b4">This widget no longer exists.</p>';
     return;
   }
+  multiCtx = Array.isArray(fp.contexts) && fp.contexts.length > 1;
   $('fpName').textContent = fp.name;
   $('fpKind').textContent = fp.title + ' · ' + fp.contextName;
   if (fp.icon) { $('fpIcon').textContent = fp.icon; $('fpIcon').hidden = false; }

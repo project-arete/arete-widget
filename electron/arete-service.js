@@ -269,52 +269,66 @@ export class AreteService extends EventEmitter {
   }
 
   /**
-   * Instantiate a WIDGET: register Node -> Context under this app's System and
-   * declare each capability (provider/consumer of a CP). Requires an authed
-   * connection. IDs must be STABLE across restarts (22-char base62).
+   * Instantiate a WIDGET: register Node -> Context(s) under this app's System
+   * and declare each capability (provider/consumer of a CP) in EVERY context.
+   * A node may hold several contexts — contexts are the PLACES the widget is
+   * present in (a landlord's lease capability declared into each unit's
+   * context), not a property of the node. Requires an authed connection.
+   * IDs must be STABLE across restarts (22-char base62).
    *
-   * @param {object} spec {nodeId, nodeName, contextId, contextName,
+   * @param {object} spec {nodeId, nodeName, contexts: [{id, name}],
    *                       capabilities: [{profile, role}]}
-   * @returns {Promise<{systemId:string, caps:Object<string,object>}>} caps maps
-   *   "<role>|<profile>" -> SDK Provider/Consumer handle (has .get/.put).
+   *   (legacy single-context callers may pass contextId/contextName instead)
+   * @returns {Promise<{systemId:string, caps:Object<string,object>,
+   *   capsByCtx:Object<string,Object<string,object>>}>}
+   *   caps maps "<role>|<profile>" -> handle in the FIRST context (legacy);
+   *   capsByCtx maps ctxId -> {"<role>|<profile>" -> handle} for all contexts.
    */
-  async instantiate({ nodeId, nodeName, contextId, contextName, capabilities = [] }) {
+  async instantiate({ nodeId, nodeName, contextId, contextName, contexts, capabilities = [] }) {
     if (!this.#client || !this.#client.isOpen()) {
       throw new Error('Not connected. Connect before adding widgets.');
     }
+    const ctxs = Array.isArray(contexts) && contexts.length
+      ? contexts.map((c) => ({ id: c.id, name: c.name }))
+      : [{ id: contextId, name: contextName }];
     const system = await this.#registerSystem();
     this.#identity.system = system.id;
     const node = await system.node(nodeId, nodeName, false);
-    const context = await node.context(contextId, contextName);
 
-    const caps = {};
+    const capsByCtx = {};
     const keys = this.#client.keys || {};
-    for (const c of capabilities) {
-      const base = `cns/${system.id}/nodes/${nodeId}/contexts/${contextId}/${c.role}/${c.profile}`;
-      // The control plane's provider/consumer declaration is NOT idempotent:
-      // re-declaring an existing capability RESETS its property values to
-      // empty (verified live — systems/nodes/contexts re-registration is
-      // value-safe, the providers/consumers command is the wiper, and the
-      // empties then propagate into every connection). If the capability is
-      // already on the realm from a previous run, skip the command and build
-      // a plain key-path handle instead — existing values then survive app
-      // restarts and reconnects.
-      if (keys[base + '/version'] !== undefined) {
-        caps[`${c.role}|${c.profile}`] = this.#capHandle(base);
-        continue;
+    for (const ctx of ctxs) {
+      const context = await node.context(ctx.id, ctx.name);
+      const caps = (capsByCtx[ctx.id] = {});
+      for (const c of capabilities) {
+        const base = `cns/${system.id}/nodes/${nodeId}/contexts/${ctx.id}/${c.role}/${c.profile}`;
+        // The control plane's provider/consumer declaration is NOT idempotent:
+        // re-declaring an existing capability RESETS its property values to
+        // empty (verified live — systems/nodes/contexts re-registration is
+        // value-safe, the providers/consumers command is the wiper, and the
+        // empties then propagate into every connection). If the capability is
+        // already on the realm from a previous run, skip the command and build
+        // a plain key-path handle instead — existing values then survive app
+        // restarts and reconnects.
+        if (keys[base + '/version'] !== undefined) {
+          caps[`${c.role}|${c.profile}`] = this.#capHandle(base);
+          continue;
+        }
+        const handle = c.role === 'provider'
+          ? await context.provider(c.profile)
+          : await context.consumer(c.profile);
+        caps[`${c.role}|${c.profile}`] = handle;
       }
-      const handle = c.role === 'provider'
-        ? await context.provider(c.profile)
-        : await context.consumer(c.profile);
-      caps[`${c.role}|${c.profile}`] = handle;
     }
     this.#log(
       'info',
-      `Widget node "${nodeName}" registered in context "${contextName}" ` +
+      `Widget node "${nodeName}" registered in ${ctxs.length === 1
+        ? `context "${ctxs[0].name}"`
+        : `${ctxs.length} contexts (${ctxs.map((c) => `"${c.name}"`).join(', ')})`} ` +
         `(${capabilities.map((c) => `${c.role} of ${c.profile}`).join(', ') || 'no capabilities'}).`
     );
     this.emit('status', this.getStatus());
-    return { systemId: system.id, caps };
+    return { systemId: system.id, caps: capsByCtx[ctxs[0].id], capsByCtx };
   }
 
   /**

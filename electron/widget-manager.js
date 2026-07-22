@@ -35,6 +35,24 @@ function base62(len = 22) {
   return out;
 }
 
+// A widget instance is ONE node present in one or MORE contexts (the places
+// it lives in — a landlord's lease capability declared into each unit's
+// context). inst.contexts [{id, name}] is authoritative; contextId/contextName
+// mirror contexts[0] so older readers (and the faceplate title) keep working.
+// Pre-multi-context records (single contextId/contextName) are migrated here.
+function normalizeContexts(inst) {
+  if (!Array.isArray(inst.contexts) || !inst.contexts.length) {
+    inst.contexts = [{ id: inst.contextId, name: inst.contextName }];
+  }
+  inst.contexts = inst.contexts
+    .filter((c) => c && c.id)
+    .map((c) => ({ id: String(c.id), name: String(c.name || '') }));
+  if (!inst.contexts.length) inst.contexts = [{ id: base62(22), name: inst.name || '' }];
+  inst.contextId = inst.contexts[0].id;
+  inst.contextName = inst.contexts[0].name;
+  return inst;
+}
+
 export class WidgetManager extends EventEmitter {
   #service;
   #dataDir;
@@ -233,6 +251,8 @@ export class WidgetManager extends EventEmitter {
     } catch (_) {
       this.#instances = [];
     }
+    // Migration: pre-multi-context records carry a single contextId/Name.
+    for (const inst of this.#instances) normalizeContexts(inst);
   }
 
   #saveInstances() {
@@ -266,20 +286,24 @@ export class WidgetManager extends EventEmitter {
   // keys and resolve their system/node names — the visible face of a binding.
   #peersFor(inst, model, keys) {
     const peers = [];
-    for (const cap of model.capabilities) {
-      const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}/${cap.role}/${cap.profile}/connections/`;
-      const peerSide = cap.role === 'provider' ? 'consumer' : 'provider';
-      for (const k in keys) {
-        if (!k.startsWith(prefix)) continue;
-        const m = k.slice(prefix.length).match(/^([^/]+)\/(consumer|provider)$/);
-        if (!m || m[2] !== peerSide) continue;
-        const p = String(keys[k]).split('/'); // cns/<sys>/nodes/<node>/contexts/<ctx>
-        peers.push({
-          connId: m[1],
-          profile: cap.profile,
-          system: keys[`cns/${p[1]}/name`] || p[1],
-          node: keys[`cns/${p[1]}/nodes/${p[3]}/name`] || p[3],
-        });
+    for (const ctx of inst.contexts || [{ id: inst.contextId, name: inst.contextName }]) {
+      for (const cap of model.capabilities) {
+        const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${ctx.id}/${cap.role}/${cap.profile}/connections/`;
+        const peerSide = cap.role === 'provider' ? 'consumer' : 'provider';
+        for (const k in keys) {
+          if (!k.startsWith(prefix)) continue;
+          const m = k.slice(prefix.length).match(/^([^/]+)\/(consumer|provider)$/);
+          if (!m || m[2] !== peerSide) continue;
+          const p = String(keys[k]).split('/'); // cns/<sys>/nodes/<node>/contexts/<ctx>
+          peers.push({
+            connId: m[1],
+            profile: cap.profile,
+            ctxId: ctx.id,
+            context: ctx.name,
+            system: keys[`cns/${p[1]}/name`] || p[1],
+            node: keys[`cns/${p[1]}/nodes/${p[3]}/name`] || p[3],
+          });
+        }
       }
     }
     return peers;
@@ -290,22 +314,30 @@ export class WidgetManager extends EventEmitter {
   }
 
   /**
-   * Create a new widget instance. If contextId is given we JOIN that context
-   * (the broker matches on context ID); otherwise a fresh one is minted.
+   * Create a new widget instance. `contexts` [{id, name}] lists every context
+   * the widget is present in — an entry with an id JOINS that context (the
+   * broker matches on context ID), an entry without one mints a fresh
+   * context. Legacy single contextId/contextName still accepted.
    */
-  async addInstance({ widgetId, name, contextId, contextName }) {
+  async addInstance({ widgetId, name, contextId, contextName, contexts }) {
     const def = this.#defs.get(widgetId);
     if (!def || !def.ok) throw new Error(`Widget "${widgetId}" is not available (invalid or unknown definition).`);
     const instName = (name || '').trim();
     if (!instName) throw new Error('The widget needs a name (it becomes the Node name).');
 
+    const ctxs = (Array.isArray(contexts) && contexts.length ? contexts : [{ id: contextId, name: contextName }])
+      .map((c) => ({
+        id: String(c.id || '').trim() || base62(22),
+        name: String(c.name || '').trim() || instName,
+      }));
     const inst = {
       id: base62(10),
       widgetId,
       name: instName,
       nodeId: base62(22),
-      contextId: (contextId || '').trim() || base62(22),
-      contextName: (contextName || '').trim() || instName,
+      contexts: ctxs,
+      contextId: ctxs[0].id,
+      contextName: ctxs[0].name,
       createdAt: new Date().toISOString(),
       initDone: false,
     };
@@ -331,23 +363,35 @@ export class WidgetManager extends EventEmitter {
    * capabilities under the new context — the old context registration stays
    * on the realm until cleaned up there, the SDK has no delete).
    */
-  async updateInstance({ id, name, contextId, contextName }) {
+  async updateInstance({ id, name, contextId, contextName, contexts }) {
     const inst = this.#instances.find((i) => i.id === id);
     if (!inst) throw new Error('Unknown widget instance.');
+    normalizeContexts(inst);
     const newName = (name || '').trim();
     if (!newName) throw new Error('The widget needs a name (it becomes the Node name).');
 
-    const newCtxId = (contextId || '').trim() || inst.contextId;
-    const newCtxName = (contextName || '').trim() || inst.contextName;
-    const ctxMoved = newCtxId !== inst.contextId;
-    const changed = ctxMoved || newName !== inst.name || newCtxName !== inst.contextName;
+    let newCtxs;
+    if (Array.isArray(contexts) && contexts.length) {
+      newCtxs = contexts.map((c) => ({
+        id: String(c.id || '').trim() || base62(22),
+        name: String(c.name || '').trim() || newName,
+      }));
+    } else {
+      // Legacy single-context edit: replace the whole presence list.
+      const newCtxId = (contextId || '').trim() || inst.contextId;
+      const newCtxName = (contextName || '').trim() || inst.contextName;
+      newCtxs = [{ id: newCtxId, name: newCtxName }];
+    }
+    const ctxChanged = JSON.stringify(newCtxs) !== JSON.stringify(inst.contexts);
+    const changed = ctxChanged || newName !== inst.name;
     if (!changed) return this.getInstance(id);
 
     inst.name = newName;
-    inst.contextId = newCtxId;
-    inst.contextName = newCtxName;
+    inst.contexts = newCtxs;
+    inst.contextId = newCtxs[0].id;
+    inst.contextName = newCtxs[0].name;
     this.#saveInstances();
-    this.#log('info', `Widget "${newName}" updated` + (ctxMoved ? ' (moved to another context — the old context registration remains on the realm until cleaned up there).' : '.'));
+    this.#log('info', `Widget "${newName}" updated` + (ctxChanged ? ` (now present in ${newCtxs.length} context${newCtxs.length === 1 ? '' : 's'} — registrations left behind on the realm stay until cleaned up there).` : '.'));
 
     if (this.#live.has(id)) {
       this.#live.delete(id);
@@ -386,15 +430,15 @@ export class WidgetManager extends EventEmitter {
   async #attach(inst) {
     const def = this.#defs.get(inst.widgetId);
     if (!def || !def.ok) throw new Error(`Definition "${inst.widgetId}" unavailable.`);
-    const { systemId, caps } = await this.#service.instantiate({
+    normalizeContexts(inst);
+    const { systemId, caps, capsByCtx } = await this.#service.instantiate({
       nodeId: inst.nodeId,
       nodeName: inst.name,
-      contextId: inst.contextId,
-      contextName: inst.contextName,
+      contexts: inst.contexts,
       capabilities: def.model.capabilities.map((c) => ({ profile: c.profile, role: c.role })),
     });
     inst.systemId = systemId;
-    this.#live.set(inst.id, { caps, pending: {}, state: {}, connections: 0, rttProbes: {}, rttTimes: {} });
+    this.#live.set(inst.id, { caps, capsByCtx, pending: {}, state: {}, connections: 0, rttProbes: {}, rttTimes: {} });
 
     // First-ever attach: issue the definition's init puts.
     if (!inst.initDone) {
@@ -525,6 +569,10 @@ export class WidgetManager extends EventEmitter {
     return changed;
   }
 
+  // Capability-level (unscoped) write: FANS OUT to every attached context —
+  // one value, N presences. Differentiating per context is what per-connection
+  // (pill-scoped) writes are for; app-level semantics, per the multi-
+  // connection principle.
   async #put(inst, model, prop, value) {
     const live = this.#live.get(inst.id);
     if (!live) throw new Error('Widget is not attached (not connected).');
@@ -532,11 +580,17 @@ export class WidgetManager extends EventEmitter {
     if (!r || !model.writable.includes(prop)) {
       throw new Error(`Property "${prop}" is not writable by this widget.`);
     }
-    const cap = live.caps[`${r.role}|${r.profile}`];
-    if (!cap) throw new Error(`No live ${r.role} handle for ${r.profile}.`);
+    const byCtx = live.capsByCtx || { [inst.contextId]: live.caps };
     live.pending[prop] = String(value);
     this.#rttStamp(inst, model, prop, value); // clock starts at the write
-    await cap.put(prop, String(value));
+    let wrote = 0;
+    for (const ctxId in byCtx) {
+      const cap = byCtx[ctxId][`${r.role}|${r.profile}`];
+      if (!cap) continue;
+      await cap.put(prop, String(value));
+      wrote++;
+    }
+    if (!wrote) throw new Error(`No live ${r.role} handle for ${r.profile}.`);
   }
 
   // Per-connection write: sets ONE connection's property. The control plane
@@ -559,8 +613,10 @@ export class WidgetManager extends EventEmitter {
       // writes per-CP since UI v37; this is the belt-and-braces backstop.
       throw new Error(`Connection ${connId} belongs to ${peer.profile}, not ${r.profile} — refusing the misaddressed write.`);
     }
+    // Route to the CONTEXT this connection lives in (multi-context attach).
+    const ctxId = peer.ctxId || inst.contextId;
     const key =
-      `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}` +
+      `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${ctxId}` +
       `/${r.role}/${r.profile}/connections/${connId}/properties/${prop}`;
     this.#rttStamp(inst, model, prop, value, connId); // clock starts at the write
     await this.#service.putKey(key, String(value));

@@ -134,6 +134,57 @@ try {
   });
   console.log('   bulb reports cState=0 ✔');
 
+  console.log('6b) MULTI-CONTEXT (UI v43): one switch present in TWO contexts, a bulb in each ...');
+  // The landlord pattern: ONE node declares its provider capability into two
+  // different contexts; each context holds its own consumer. The broker binds
+  // per context; the switch pools both connections; scoped writes route by
+  // connection to the right context; unscoped writes fan out to both.
+  const suiteA = { id: null, name: 'MC Suite A' };
+  const suiteB = { id: null, name: 'MC Suite B' };
+  const mcBulbA = await manager.addInstance({ widgetId: 'bulb', name: 'MC Bulb A', contextName: suiteA.name });
+  const mcBulbB = await manager.addInstance({ widgetId: 'bulb', name: 'MC Bulb B', contextName: suiteB.name });
+  suiteA.id = mcBulbA.contextId;
+  suiteB.id = mcBulbB.contextId;
+  const mcSw = await manager.addInstance({
+    widgetId: 'switch',
+    name: 'MC Landlord Switch',
+    contexts: [{ id: suiteA.id, name: suiteA.name }, { id: suiteB.id, name: suiteB.name }],
+  });
+  if (!(mcSw.contexts && mcSw.contexts.length === 2)) throw new Error('multi-context instance should carry 2 contexts');
+  await waitFor('broker binds the multi-context switch in BOTH contexts', () => {
+    const s = manager.getInstance(mcSw.id);
+    const a = manager.getInstance(mcBulbA.id);
+    const b = manager.getInstance(mcBulbB.id);
+    return s && s.connections === 2 && a && a.connections > 0 && b && b.connections > 0;
+  });
+  const mcPeers = manager.getInstance(mcSw.id).peers;
+  const peerCtxs = new Set(mcPeers.map((p) => p.ctxId));
+  if (!(peerCtxs.has(suiteA.id) && peerCtxs.has(suiteB.id))) {
+    throw new Error('peers should span both contexts, got ' + JSON.stringify([...peerCtxs]));
+  }
+  const ctxNames = mcPeers.map((p) => p.context).sort().join('|');
+  if (ctxNames !== 'MC Suite A|MC Suite B') throw new Error('peer context names wrong: ' + ctxNames);
+  console.log('   bound across both suites ✔ —', mcPeers.map((p) => `${p.node}@${p.context}`).join(', '));
+
+  console.log('6c) Unscoped write FANS OUT to both contexts ...');
+  await manager.putProperty(mcSw.id, 'sOut', '1');
+  await waitFor('both suite bulbs follow the fan-out', () => {
+    const a = manager.getInstance(mcBulbA.id);
+    const b = manager.getInstance(mcBulbB.id);
+    return a && a.state.cState === '1' && b && b.state.cState === '1';
+  });
+  console.log('   both suites at cState=1 ✔');
+
+  console.log('6d) Pill-scoped write routes to ONE suite\'s connection only ...');
+  const connB = mcPeers.find((p) => p.ctxId === suiteB.id).connId;
+  await manager.putProperty(mcSw.id, 'sOut', '0', connB);
+  await waitFor('suite B follows, suite A untouched', () => {
+    const a = manager.getInstance(mcBulbA.id);
+    const b = manager.getInstance(mcBulbB.id);
+    return a && a.state.cState === '1' && b && b.state.cState === '0';
+  });
+  console.log('   suite B off, suite A still on ✔ (the addressed channel respected the context)');
+
   console.log('7) Verifying the realm shows the CUSTOM system name (not the hostname) ...');
   // Both addInstance calls above went through registerSystem paths; the realm
   // name must still be the custom one (client.system() resets it to

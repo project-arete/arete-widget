@@ -115,38 +115,30 @@ assert('name prefilled', $('#af-name').value === 'Virtual Bulb');
 assert('pending ctx id shown', ($('#af-ctxinfo-new')?.textContent || '').includes('matching space'));
 assert('back button present (create mode)', !!$('[data-back]'));
 
-const joinRadio = $('#af-ctx-join');
-assert('join radio enabled', joinRadio && !joinRadio.disabled);
-const sel = $('#af-ctxsel');
-assert('only complementary contexts listed', sel?.options.length === 1);
-assert('matched ctx is the provider one', sel?.options[0]?.value === 'Ctx000000000000000001');
-assert('option mentions the partner', (sel?.options[0]?.textContent || '').includes('1 padi.light provider'));
+// v43: contexts are a composable CHECKBOX list — every checked box is one
+// presence (multi-context attach).
+const matchBox = $('.af-ctx-match');
+assert('matching context offered as a checkbox', !!matchBox);
+assert('only complementary contexts listed', $$('.af-ctx-match').length === 1);
+assert('matched ctx is the provider one', matchBox?.dataset.id === 'Ctx000000000000000001');
+assert('row mentions the partner', (matchBox?.parentElement.textContent || '').includes('1 padi.light provider'));
 
 // 4a) v31: with a match on the realm, JOIN is the DEFAULT — and the
 // new-context name is never prefilled from the widget title
-assert('join is the default when a match exists', joinRadio.checked && !$('#af-ctx-new').checked);
-assert('join select visible by default', !$('#af-ctxsel-row').hidden);
+assert('join is the default when a match exists', matchBox.checked && !$('#af-ctx-new').checked);
 assert('ctx name has no widget-title prefill', $('#af-ctxname').value === '');
-assert('option flags the unbound partner', (sel?.options[0]?.textContent || '').includes('unbound'));
+assert('name row hidden while new unchecked', $('#af-ctxname-row').hidden);
+assert('row flags the unbound partner', (matchBox?.parentElement.textContent || '').includes('unbound'));
 
-// 5) Join existing
-joinRadio.checked = true;
-$('#af-ctx-new').checked = false;
-fire(joinRadio, 'change');
-assert('join — select row visible', !$('#af-ctxsel-row').hidden);
-assert('join — name row hidden', $('#af-ctxname-row').hidden);
-assert('join info populated', ($('#af-ctxinfo-join')?.textContent || '').includes('already holds'));
-
-// 6) selection survives live keys pushes
-const before = sel.value;
+// 6) checked state survives live keys pushes
 for (const cb of subs.keys) cb({ ...KEYS, 'cns/S1/nodes/N1/contexts/Ctx000000000000000001/provider/padi.light/properties/sOut': '1' });
 for (const cb of subs.keys) cb({ ...KEYS });
-assert('selection survives keys pushes', sel.value === before && sel.value !== '');
+assert('checked state survives keys pushes', $('.af-ctx-match')?.checked === true);
 
 // 7) create
 $('#af-create').click();
 await new Promise((r) => setTimeout(r, 20));
-assert('widgetAdd called with contextId', !!(window.__added && window.__added.contextId));
+assert('widgetAdd carries the joined context', window.__added?.contexts?.length === 1 && window.__added.contexts[0].id === 'Ctx000000000000000001');
 assert('faceplate opened', window.__opened === 'inst1');
 assert('dialog closed after create', $('#dlgOverlay').hidden);
 
@@ -155,9 +147,10 @@ window.__added = null;
 $('[data-plus]').click();
 $('#dlgSearch').value = ''; fire($('#dlgSearch'), 'input');
 $('#dlgPickList [data-pick="bulb"]').click();
+$('.af-ctx-match').checked = false;
 $('#af-ctx-new').checked = true;
-$('#af-ctx-join').checked = false;
 fire($('#af-ctx-new'), 'change');
+assert('new-context name row appears', !$('#af-ctxname-row').hidden);
 assert('new-context name starts empty', $('#af-ctxname').value === '');
 $('#af-create').click();
 await new Promise((r) => setTimeout(r, 20));
@@ -168,18 +161,34 @@ fire($('#af-ctxname'), 'input');
 assert('typing clears the flag', !$('#af-ctxname').classList.contains('field-missing'));
 $('#af-create').click();
 await new Promise((r) => setTimeout(r, 20));
-assert('typed ctx name creates', window.__added?.contextName === 'Kitchen Lights');
+assert('typed ctx name creates', window.__added?.contexts?.[0]?.name === 'Kitchen Lights');
 assert('dialog closed after named create', $('#dlgOverlay').hidden);
 
-// 8) empty-realm open: join disabled with hint, recovers when keys arrive
+// 7b) v43: MULTI-context create — join the match AND mint a new context
+window.__added = null;
+$('[data-plus]').click();
+$('#dlgSearch').value = ''; fire($('#dlgSearch'), 'input');
+$('#dlgPickList [data-pick="bulb"]').click();
+assert('match pre-checked again', $('.af-ctx-match').checked);
+$('#af-ctx-new').checked = true;
+fire($('#af-ctx-new'), 'change');
+$('#af-ctxname').value = 'Second Home';
+$('#af-create').click();
+await new Promise((r) => setTimeout(r, 20));
+assert('create carries BOTH contexts (join + new)',
+  window.__added?.contexts?.length === 2 &&
+  window.__added.contexts[0].id === 'Ctx000000000000000001' &&
+  window.__added.contexts[1].name === 'Second Home');
+assert('dialog closed after multi create', $('#dlgOverlay').hidden);
+
+// 8) empty-realm open: no join rows with hint, recovers when keys arrive
 for (const cb of subs.keys) cb({});
 $('[data-plus]').click();
 $('#dlgPickList [data-pick="bulb"]').click();
-const jr = $('#af-ctx-join');
-assert('empty keys — join disabled', jr.disabled);
+assert('empty keys — no join rows', $$('.af-ctx-match').length === 0);
 assert('empty keys — hint visible', !$('#af-join-hint').hidden);
 for (const cb of subs.keys) cb(KEYS);
-assert('keys arrive — join re-enabled', !jr.disabled);
+assert('keys arrive — join row appears', $$('.af-ctx-match').length === 1);
 assert('keys arrive — hint hidden', $('#af-join-hint').hidden);
 $('#dlgClose').click();
 assert('close button closes dialog', $('#dlgOverlay').hidden);
@@ -229,13 +238,13 @@ assert('edit dialog opened', !$('#dlgOverlay').hidden);
 assert('edit title', $('#dlgTitle').textContent === 'Edit widget');
 assert('edit — name prefilled', $('#af-name').value === 'My Bulb');
 assert('edit — type locked (no back button)', !$('[data-back]'));
-assert('edit — keep radio present + checked', !!$('#af-ctx-keep') && $('#af-ctx-keep').checked);
-assert('edit — current ctx excluded from join', $('#af-ctxsel').options.length === 0 && $('#af-ctx-join').disabled);
+assert('edit — current context listed + checked', !!$('.af-ctx-cur') && $('.af-ctx-cur').checked);
+assert('edit — current ctx excluded from join rows', $$('.af-ctx-match').length === 0);
 $('#af-name').value = 'Kitchen Bulb';
 $('#af-create').click();
 await new Promise((r) => setTimeout(r, 20));
 assert('widgetUpdate called', !!window.__updated);
-assert('update keeps context id', window.__updated?.contextId === 'Ctx000000000000000001');
+assert('update keeps context id', window.__updated?.contexts?.[0]?.id === 'Ctx000000000000000001');
 assert('update carries new name', window.__updated?.name === 'Kitchen Bulb');
 assert('dialog closed after save', $('#dlgOverlay').hidden);
 

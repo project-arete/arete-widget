@@ -28,35 +28,46 @@
  *    both sides' props, so each entry is a complete per-peer view).
  *
  * @param {Object<string,string>} keys flat CNS namespace
- * @param {object} inst {systemId, nodeId, contextId}
+ * @param {object} inst {systemId, nodeId, contextId} or
+ *   {systemId, nodeId, contexts: [ctxId, ...]} — a node may be present in
+ *   several contexts (multi-context attach); each context's capability paths
+ *   are scanned and their connections pooled.
  * @param {object} model validated widget model (capabilities: [{profile, role}])
- * @returns {{state:Object<string,string>, connections:number, perConn:Object<string,Object<string,string>>}}
+ * @returns {{state:Object<string,string>, connections:number, perConn:Object<string,Object<string,string>>, connCtx:Object<string,string>}}
+ *   connCtx maps connId -> the contextId the connection lives in (write routing).
  */
 export function deriveState(keys, inst, model) {
+  const ctxIds = Array.isArray(inst.contexts) && inst.contexts.length
+    ? inst.contexts.map((c) => (typeof c === 'string' ? c : c.id))
+    : [inst.contextId];
   const capProps = {};
   const perConn = {};
+  const connCtx = {};
   const allConnIds = [];
-  for (const cap of model.capabilities) {
-    const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}/${cap.role}/${cap.profile}/`;
-    const connIds = new Set();
-    for (const k in keys) {
-      if (!k.startsWith(prefix)) continue;
-      const rest = k.slice(prefix.length);
-      if (rest.startsWith('properties/')) {
-        capProps[rest.slice('properties/'.length)] = keys[k];
-      } else if (rest.startsWith('connections/')) {
-        const connId = rest.split('/')[1];
-        connIds.add(connId);
-        const m = rest.match(/^connections\/[^/]+\/properties\/(.+)$/);
-        if (m) (perConn[connId] || (perConn[connId] = {}))[m[1]] = keys[k];
+  for (const ctxId of ctxIds) {
+    for (const cap of model.capabilities) {
+      const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${ctxId}/${cap.role}/${cap.profile}/`;
+      const connIds = new Set();
+      for (const k in keys) {
+        if (!k.startsWith(prefix)) continue;
+        const rest = k.slice(prefix.length);
+        if (rest.startsWith('properties/')) {
+          capProps[rest.slice('properties/'.length)] = keys[k];
+        } else if (rest.startsWith('connections/')) {
+          const connId = rest.split('/')[1];
+          connIds.add(connId);
+          connCtx[connId] = ctxId;
+          const m = rest.match(/^connections\/[^/]+\/properties\/(.+)$/);
+          if (m) (perConn[connId] || (perConn[connId] = {}))[m[1]] = keys[k];
+        }
       }
+      allConnIds.push(...connIds);
     }
-    allConnIds.push(...connIds);
   }
   // Merged view: capability props first, then connection overlays.
   const state = { ...capProps };
   for (const id of allConnIds) if (perConn[id]) Object.assign(state, perConn[id]);
-  return { state, connections: allConnIds.length, perConn };
+  return { state, connections: allConnIds.length, perConn, connCtx };
 }
 
 // Aggregate a rule's input across ALL connections (perConn). Numeric only:

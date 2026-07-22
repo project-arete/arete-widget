@@ -187,6 +187,24 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
   assert.equal(connections, 1);
   ok('deriveState: connection props overlay capability props');
 
+  // Multi-context attach: one node present in TWO contexts pools both
+  // contexts' connections and maps each connId to its context (write routing).
+  {
+    const mcInst = { systemId: 'SYS', nodeId: 'NODE', contexts: ['CTXA', 'CTXB'] };
+    const a = 'cns/SYS/nodes/NODE/contexts/CTXA/consumer/padi.light/';
+    const b = 'cns/SYS/nodes/NODE/contexts/CTXB/consumer/padi.light/';
+    const mcKeys = {
+      [a + 'connections/c1/properties/sOut']: '1',
+      [b + 'connections/c2/properties/sOut']: '0',
+    };
+    const d = deriveState(mcKeys, mcInst, model);
+    assert.equal(d.connections, 2);
+    assert.deepEqual(d.connCtx, { c1: 'CTXA', c2: 'CTXB' });
+    assert.equal(d.perConn.c1.sOut, '1');
+    assert.equal(d.perConn.c2.sOut, '0');
+    ok('deriveState: multi-context pools connections + connCtx routes them');
+  }
+
   const pending = {};
   let actions = computeActions(model, state, pending);
   assert.deepEqual(actions, [{ property: 'cState', value: '1' }]);

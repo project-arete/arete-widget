@@ -137,8 +137,9 @@ function contextsMatching(d, excludeCtxId) {
     profile: c.profile,
     partner: c.role === 'provider' ? 'consumer' : 'provider',
   }));
+  const excluded = Array.isArray(excludeCtxId) ? excludeCtxId : (excludeCtxId ? [excludeCtxId] : []);
   return realmContexts()
-    .filter((c) => c.id !== excludeCtxId)
+    .filter((c) => !excluded.includes(c.id))
     .map((c) => {
       const partners = [];
       let waiting = 0;
@@ -237,12 +238,12 @@ function renderPickList() {
 function snapshotForm() {
   if (!dlg || dlg.step !== 2) return null;
   const q = (id) => els.dlgBody.querySelector('#' + id);
-  const radio = ['af-ctx-keep', 'af-ctx-new', 'af-ctx-join'].find((r) => q(r) && q(r).checked);
   return {
     name: q('af-name') ? q('af-name').value : null,
-    radio,
     ctxName: q('af-ctxname') ? q('af-ctxname').value : null,
-    ctxSel: q('af-ctxsel') ? q('af-ctxsel').value : null,
+    newChecked: q('af-ctx-new') ? q('af-ctx-new').checked : false,
+    checkedIds: [...els.dlgBody.querySelectorAll('.af-ctx-box')].filter((b) => b.checked).map((b) => b.dataset.id),
+    uncheckedIds: [...els.dlgBody.querySelectorAll('.af-ctx-box')].filter((b) => !b.checked).map((b) => b.dataset.id),
   };
 }
 
@@ -251,12 +252,10 @@ function restoreForm(snap) {
   const q = (id) => els.dlgBody.querySelector('#' + id);
   if (snap.name != null && q('af-name')) q('af-name').value = snap.name;
   if (snap.ctxName != null && q('af-ctxname')) q('af-ctxname').value = snap.ctxName;
-  if (snap.radio && q(snap.radio) && !q(snap.radio).disabled) {
-    ['af-ctx-keep', 'af-ctx-new', 'af-ctx-join'].forEach((r) => { if (q(r)) q(r).checked = r === snap.radio; });
-  }
-  const sel = q('af-ctxsel');
-  if (sel && snap.ctxSel != null && [...sel.options].some((o) => o.value === snap.ctxSel)) {
-    sel.value = snap.ctxSel;
+  if (q('af-ctx-new')) q('af-ctx-new').checked = !!snap.newChecked;
+  for (const b of els.dlgBody.querySelectorAll('.af-ctx-box')) {
+    if (snap.checkedIds.includes(b.dataset.id)) b.checked = true;
+    else if (snap.uncheckedIds.includes(b.dataset.id)) b.checked = false;
   }
   syncFormRows();
 }
@@ -299,37 +298,37 @@ function renderDialog(preserve = false) {
       : '<span class="muted-note" title="A different widget type is a different contract — create a new widget instead.">type is fixed</span>'}
   </div>`;
 
-  const ctxs = contextsMatching(d, inst ? inst.contextId : undefined);
-  const opts = ctxs
-    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${esc(c.partnersText)})</option>`)
-    .join('');
-  const joinDisabled = ctxs.length ? '' : 'disabled';
+  // Contexts are the PLACES this widget is present in — one or many (a
+  // landlord's lease declared into each unit's context). Current contexts
+  // (edit) and matching realm contexts are one composable checkbox list.
+  const current = inst ? (inst.contexts || [{ id: inst.contextId, name: inst.contextName }]) : [];
+  const ctxs = contextsMatching(d, current.map((c) => c.id));
   // Creating: if any context could bind this widget, DEFAULT to joining the
   // best match (unbound partners first) — a widget alone in a fresh context
   // binds nothing, and a prefilled context name made that accident silent.
   const defaultJoin = dlg.mode === 'create' && ctxs.length > 0;
-
-  const keepChoice = dlg.mode === 'edit'
-    ? `<label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-keep" checked /> <span>Keep current context</span></label>`
-    : '';
-  const keepInfo = dlg.mode === 'edit'
-    ? `<div id="af-ctxinfo-keep" class="ctx-info">Stays in <strong>${esc(inst.contextName)}</strong> <span class="mono">${esc(inst.contextId)}</span> — existing bindings are untouched. You can still rename the context above.</div>`
-    : '';
+  const currentRows = current
+    .map((c) => `<label class="checkbox"><input type="checkbox" class="af-ctx-box af-ctx-cur" data-id="${esc(c.id)}" data-name="${esc(c.name)}" checked />
+      <span><strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> — current${current.length === 1 ? '' : ''}</span></label>`)
+    .join('');
+  const matchRows = ctxs
+    .map((c, i) => `<label class="checkbox"><input type="checkbox" class="af-ctx-box af-ctx-match" data-id="${esc(c.id)}" data-name="${esc(c.name)}" ${defaultJoin && i === 0 ? 'checked' : ''} />
+      <span>Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> (${esc(c.partnersText)})</span></label>`)
+    .join('');
 
   els.dlgBody.innerHTML = `${summary}
     <label>Name <input type="text" id="af-name" value="${esc(inst ? inst.name : d.title)}" autocomplete="off" /></label>
-    <div class="ctx-choice">
-      ${keepChoice}
-      <label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-new" ${dlg.mode === 'edit' || defaultJoin ? '' : 'checked'} /> <span>New context</span></label>
-      <label class="checkbox"><input type="radio" name="af-ctx" id="af-ctx-join" ${joinDisabled} ${defaultJoin ? 'checked' : ''} /> <span>Join existing</span></label>
+    <div class="ctx-choice" id="af-ctxlist">
+      <p class="muted-note">Contexts — the places this widget lives in. Connections only form inside a shared context; pick one or more.</p>
+      ${currentRows}
+      <div id="af-ctxmatches">${matchRows}</div>
+      <div id="af-join-hint" class="ctx-info" ${ctxs.length ? 'hidden' : ''}>No realm context has a matching partner for this widget${connected ? '' : ' (not connected)'} — create a new context and let a partner join you instead.</div>
+      <label class="checkbox"><input type="checkbox" id="af-ctx-new" ${defaultJoin || dlg.mode === 'edit' ? '' : 'checked'} /> <span>New context</span></label>
+      <label id="af-ctxname-row">Context name <input type="text" id="af-ctxname" value="" placeholder="name the new matching space — required" autocomplete="off" /></label>
+      <div id="af-ctxinfo-new" class="ctx-info">Creates a new matching space with id <span class="mono">${esc(pendingCtxId || '')}</span>.
+        Nothing else is in it yet — that presence shows <em>awaiting broker</em> until something joins the context.</div>
+      ${dlg.mode === 'edit' ? '<div class="ctx-info">Unchecking a context drops that presence on re-attach — its old registration remains on the realm until cleaned up there.</div>' : ''}
     </div>
-    <div id="af-join-hint" class="ctx-info" ${joinDisabled ? '' : 'hidden'}>No context in the realm has a matching partner for this widget${connected ? '' : ' (not connected)'} — create a new context and let a partner join you instead.</div>
-    <label id="af-ctxname-row">Context name <input type="text" id="af-ctxname" value="${esc(inst ? inst.contextName : '')}" placeholder="name the new matching space — required" autocomplete="off" /></label>
-    ${keepInfo}
-    <div id="af-ctxinfo-new" class="ctx-info" ${dlg.mode === 'edit' ? 'hidden' : ''}>Creates a new matching space with id <span class="mono">${esc(pendingCtxId || '')}</span>.
-      Nothing else is in it yet — the widget will show <em>awaiting broker</em> until something joins this context.${dlg.mode === 'edit' ? ' The old context registration remains on the realm until cleaned up there.' : ''}</div>
-    <label id="af-ctxsel-row" hidden>Context <select id="af-ctxsel">${opts}</select></label>
-    <div id="af-ctxinfo-join" class="ctx-info" hidden></div>
     <div class="actions">
       <button type="button" class="primary" id="af-create" ${dlg.mode === 'edit' || connected ? '' : 'disabled'}>${dlg.mode === 'edit' ? 'Save changes' : 'Create widget'}</button>
       <span class="muted-note">${dlg.mode === 'edit'
@@ -339,67 +338,36 @@ function renderDialog(preserve = false) {
   if (snap) restoreForm(snap); else syncFormRows();
 }
 
-// Toggle the context rows to match the radio state.
+// Toggle the new-context rows to match the checkbox state.
 function syncFormRows() {
   const q = (id) => els.dlgBody.querySelector('#' + id);
-  const radioNew = q('af-ctx-new');
-  if (!radioNew) return;
-  const keeping = q('af-ctx-keep') ? q('af-ctx-keep').checked : false;
-  const joining = q('af-ctx-join').checked;
-  q('af-ctxname-row').hidden = joining;
-  if (q('af-ctxinfo-keep')) q('af-ctxinfo-keep').hidden = !keeping;
-  q('af-ctxinfo-new').hidden = joining || keeping;
-  q('af-ctxsel-row').hidden = !joining;
-  q('af-ctxinfo-join').hidden = !joining;
-  if (joining) updateJoinInfo();
+  const boxNew = q('af-ctx-new');
+  if (!boxNew) return;
+  q('af-ctxname-row').hidden = !boxNew.checked;
+  q('af-ctxinfo-new').hidden = !boxNew.checked;
 }
 
-// Update ONLY the context <select> options in place (called on live keys
-// updates) — never rebuilds the form, always preserves the current selection.
+// Update ONLY the matching-context rows in place (called on live keys
+// updates) — never rebuilds the form, always preserves checked states.
 function refreshCtxOptions() {
   if (!dlg || dlg.step !== 2) return;
-  const sel = els.dlgBody.querySelector('#af-ctxsel');
-  if (!sel) return;
-  const cur = sel.value;
+  const host = els.dlgBody.querySelector('#af-ctxmatches');
+  if (!host) return;
   const d = defs.find((x) => x.id === dlg.defId);
   const inst = dlg.mode === 'edit' ? instances.find((i) => i.id === dlg.instId) : null;
-  const html = contextsMatching(d, inst ? inst.contextId : undefined)
-    .map((c) => `<option value="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)} — ${esc(c.id.slice(0, 8))}… (${esc(c.partnersText)})</option>`)
+  const current = inst ? (inst.contexts || [{ id: inst.contextId, name: inst.contextName }]) : [];
+  const ctxs = contextsMatching(d, current.map((c) => c.id));
+  const html = ctxs
+    .map((c) => `<label class="checkbox"><input type="checkbox" class="af-ctx-box af-ctx-match" data-id="${esc(c.id)}" data-name="${esc(c.name)}" />
+      <span>Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> (${esc(c.partnersText)})</span></label>`)
     .join('');
-  if (sel.dataset.rendered === html) return; // nothing changed — don't touch it
-  sel.innerHTML = html;
-  sel.dataset.rendered = html;
-  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
-  const joinRadio = els.dlgBody.querySelector('#af-ctx-join');
-  if (joinRadio) {
-    joinRadio.disabled = sel.options.length === 0;
-    if (joinRadio.disabled && joinRadio.checked) {
-      // The last matching context vanished mid-form — fall back.
-      joinRadio.checked = false;
-      const fallback = els.dlgBody.querySelector('#af-ctx-keep') || els.dlgBody.querySelector('#af-ctx-new');
-      fallback.checked = true;
-      syncFormRows();
-    }
-  }
+  if (host.dataset.rendered === html) return; // nothing changed — don't touch it
+  const checked = new Set([...host.querySelectorAll('.af-ctx-box')].filter((b) => b.checked).map((b) => b.dataset.id));
+  host.innerHTML = html;
+  host.dataset.rendered = html;
+  for (const b of host.querySelectorAll('.af-ctx-box')) if (checked.has(b.dataset.id)) b.checked = true;
   const hint = els.dlgBody.querySelector('#af-join-hint');
-  if (hint) hint.hidden = sel.options.length > 0;
-  updateJoinInfo(); // the described context may have gained declarations/names
-}
-
-// Describe the currently selected existing context: full id, how many
-// declarations already live there, and the other names systems use for it.
-function updateJoinInfo() {
-  const sel = els.dlgBody.querySelector('#af-ctxsel');
-  const info = els.dlgBody.querySelector('#af-ctxinfo-join');
-  if (!sel || !info || !dlg) return;
-  const d = defs.find((x) => x.id === dlg.defId);
-  const inst = dlg.mode === 'edit' ? instances.find((i) => i.id === dlg.instId) : null;
-  const c = contextsMatching(d, inst ? inst.contextId : undefined).find((x) => x.id === sel.value);
-  if (!c) { info.textContent = ''; return; }
-  const also = c.also.length ? ` · also known as: ${c.also.map(esc).join(', ')}` : '';
-  info.innerHTML = `Joins <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id)}</span> —
-    already holds ${esc(c.partnersText)}, so the broker should bind your widget on arrival.
-    Your system adopts the name “${esc(c.name)}”.${also}`;
+  if (hint) hint.hidden = ctxs.length > 0;
 }
 
 async function submitDialog() {
@@ -410,25 +378,20 @@ async function submitDialog() {
   const btn = q('af-create');
 
   const spec = { name };
-  const keeping = q('af-ctx-keep') && q('af-ctx-keep').checked;
-  if (q('af-ctx-join').checked) {
-    const sel = q('af-ctxsel');
-    const opt = sel.options[sel.selectedIndex];
-    if (!opt) return;
-    spec.contextId = opt.value;
-    spec.contextName = opt.dataset.name || name; // adopt the existing name
-  } else if (keeping) {
-    const inst = instances.find((i) => i.id === dlg.instId);
-    spec.contextId = inst.contextId;
-    spec.contextName = q('af-ctxname').value.trim() || inst.contextName;
-  } else {
-    // A NEW context needs a deliberate name — never defaulted from the widget
-    // (that default is how identically-named orphan contexts got minted).
+  // Every checked context = one presence. Current + joined keep their ids and
+  // names; "New context" mints the id shown and needs a deliberate name —
+  // never defaulted from the widget (that default is how identically-named
+  // orphan contexts got minted).
+  const contexts = [...els.dlgBody.querySelectorAll('.af-ctx-box')]
+    .filter((b) => b.checked)
+    .map((b) => ({ id: b.dataset.id, name: b.dataset.name }));
+  if (q('af-ctx-new').checked) {
     const ctxName = q('af-ctxname').value.trim();
     if (!ctxName) { q('af-ctxname').focus(); q('af-ctxname').classList.add('field-missing'); return; }
-    spec.contextId = pendingCtxId || undefined; // exactly the id shown
-    spec.contextName = ctxName;
+    contexts.push({ id: pendingCtxId || undefined, name: ctxName });
   }
+  if (!contexts.length) { q('af-ctx-new').focus(); return; } // a widget must live SOMEWHERE
+  spec.contexts = contexts;
 
   btn.disabled = true;
   try {
@@ -484,9 +447,7 @@ els.dlgBody.addEventListener('input', (e) => {
   if (e.target.id === 'af-ctxname') e.target.classList.remove('field-missing');
 });
 els.dlgBody.addEventListener('change', (e) => {
-  const id = e.target && e.target.id;
-  if (id === 'af-ctx-new' || id === 'af-ctx-join' || id === 'af-ctx-keep') syncFormRows();
-  else if (id === 'af-ctxsel') updateJoinInfo();
+  if (e.target && e.target.id === 'af-ctx-new') syncFormRows();
 });
 
 // =========================================================================
@@ -585,7 +546,9 @@ function renderTiles() {
         ${menu}
       </div>
       <div class="tile-name">${esc(i.name)}</div>
-      <div class="tile-sub">${esc(i.widgetTitle)} · ${esc(i.contextName)}</div>
+      <div class="tile-sub">${esc(i.widgetTitle)} · ${(i.contexts || []).length > 1
+        ? esc(i.contexts.map((c) => c.name).join(' · '))
+        : esc(i.contextName)}</div>
       <div class="tile-chip">${chip}</div>
       <div class="tile-state">${stateBits}</div>
       ${peerBit}
