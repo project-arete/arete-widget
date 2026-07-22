@@ -108,6 +108,7 @@
   let checkTimer = null;
   function touched(structural = true) {
     dropLive('edited — back to the draft canvas');
+    closeLivePick(); // stale matches — reopen recomputes
     persist();
     clearTimeout(checkTimer);
     checkTimer = setTimeout(() => refresh(structural), 350);
@@ -152,6 +153,7 @@
   }
   ui.sel.addEventListener('change', () => {
     dropLive();
+    closeLivePick();
     cur = drafts.find((d) => d.key === ui.sel.value) || cur;
     selIdx = -1;
     persist();
@@ -1005,35 +1007,100 @@
     };
   }
 
+  // ---- go-live context chooser -------------------------------------------
+  // A widget alone in a fresh context binds NOTHING — connections only form
+  // between capabilities in the SAME context. So Go live first asks where:
+  // join a realm context holding a COMPLEMENTARY role for one of the draft's
+  // CPs (app.js's contextsMatching — same window), or the canvas's own
+  // context (a partner must then join US). The choice persists per draft.
+  function liveMatches() {
+    try {
+      if (typeof contextsMatching === 'function') {
+        return contextsMatching(cur.def, ensureLiveIds(cur).contextId) || [];
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  function closeLivePick() {
+    const el = $('cmpLivePick');
+    if (el) el.remove();
+  }
+
+  function openLivePick() {
+    closeLivePick();
+    const ids = ensureLiveIds(cur);
+    const matches = liveMatches();
+    const title = cur.def.title || cur.def.widget || 'Draft';
+    // Preselect: the draft's previous choice if still offered, else the best
+    // match (unbound partners first), else the canvas's own context.
+    let sel = '';
+    if (ids.join && matches.some((c) => c.id === ids.join.contextId)) sel = ids.join.contextId;
+    else if (matches.length) sel = matches[0].id;
+    const box = document.createElement('div');
+    box.className = 'cmp-livepick';
+    box.id = 'cmpLivePick';
+    box.innerHTML = `
+      <p class="muted-note">Connections only form inside a shared context — where should this widget go live?</p>
+      ${matches.map((c) => `
+        <label class="checkbox"><input type="radio" name="cmpLpCtx" value="${esc(c.id)}"${sel === c.id ? ' checked' : ''} />
+        <span>Join <strong>${esc(c.name)}</strong> <span class="muted-note">${esc(c.partnersText)}</span></span></label>`).join('')}
+      <label class="checkbox"><input type="radio" name="cmpLpCtx" value=""${sel ? '' : ' checked'} />
+      <span>New context “${esc(title)}” <span class="muted-note">${matches.length
+        ? "the canvas's own — nothing to connect to until a partner joins it"
+        : 'no realm context has a matching partner — a partner will have to join you'}</span></span></label>
+      <div class="cmp-lp-btns">
+        <button type="button" class="primary" id="cmpLpGo">Go live</button>
+        <button type="button" class="ghost" id="cmpLpCancel">Cancel</button>
+      </div>`;
+    const wrap = ui.preview.closest('.cmp-previewwrap');
+    wrap.parentNode.insertBefore(box, wrap);
+    box.querySelector('#cmpLpCancel').addEventListener('click', closeLivePick);
+    box.querySelector('#cmpLpGo').addEventListener('click', () => {
+      const picked = box.querySelector('input[name="cmpLpCtx"]:checked');
+      const id = picked ? picked.value : '';
+      const m = matches.find((c) => c.id === id);
+      ids.join = m ? { contextId: m.id, contextName: m.name } : null;
+      closeLivePick();
+      doGoLive(m ? { contextId: m.id, contextName: m.name }
+                 : { contextId: ids.contextId, contextName: title });
+    });
+  }
+
+  async function doGoLive(ctx) {
+    const ids = ensureLiveIds(cur);
+    ui.liveBtn.disabled = true;
+    const res = await window.arete.composeGoLive({
+      yamlText: check.yaml,
+      name: cur.def.title || cur.def.widget || 'Draft',
+      nodeId: ids.nodeId,
+      contextId: ctx.contextId,
+      contextName: ctx.contextName,
+      applyInit: !ids.initDone,
+    });
+    ui.liveBtn.disabled = false;
+    if (!res.ok) {
+      ui.status.textContent = res.error || 'go-live failed';
+      ui.status.className = 'cmp-status bad';
+      return;
+    }
+    ids.initDone = true;
+    persist();
+    liveMode = true;
+    liveLast = null;
+    updateLiveBtn();
+    await buildPreview();
+    ui.status.textContent = `live in “${ctx.contextName}” — awaiting broker`;
+    ui.status.className = 'cmp-status ok';
+  }
+
   if (ui.liveBtn) {
     if (!window.arete.composeGoLive) ui.liveBtn.hidden = true;
-    else ui.liveBtn.addEventListener('click', async () => {
+    else ui.liveBtn.addEventListener('click', () => {
       if (liveMode) { dropLive(); return; }
       if (!check || !check.ok) return;
-      const ids = ensureLiveIds(cur);
-      ui.liveBtn.disabled = true;
-      const res = await window.arete.composeGoLive({
-        yamlText: check.yaml,
-        name: cur.def.title || cur.def.widget || 'Draft',
-        nodeId: ids.nodeId,
-        contextId: ids.contextId,
-        contextName: cur.def.title || cur.def.widget || 'Draft',
-        applyInit: !ids.initDone,
-      });
-      ui.liveBtn.disabled = false;
-      if (!res.ok) {
-        ui.status.textContent = res.error || 'go-live failed';
-        ui.status.className = 'cmp-status bad';
-        return;
-      }
-      ids.initDone = true;
-      persist();
-      liveMode = true;
-      liveLast = null;
-      updateLiveBtn();
-      await buildPreview();
-      ui.status.textContent = 'live — node registered, awaiting broker';
-      ui.status.className = 'cmp-status ok';
+      if ($('cmpLivePick')) { closeLivePick(); return; } // toggle
+      openLivePick();
     });
   }
   if (window.arete.onComposeLive) {

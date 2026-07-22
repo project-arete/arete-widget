@@ -132,6 +132,12 @@ function check(name, ok) {
   ok ? pass++ : fail++;
 }
 
+// app.js global (same window in the real app): smart-match context join.
+// One realm context with a complementary (provider) padi.light capability.
+window.contextsMatching = () => [
+  { id: 'ctxJOIN', name: 'Landlord hall', partnersText: '1 padi.light provider, 1 unbound', waiting: 1, declarations: 2, roles: {}, also: [] },
+];
+
 // ---- boot the real compose.js ----
 window.eval(composejs);
 await sleep(600); // initial debounce + check
@@ -280,17 +286,34 @@ const liveBtn = $('cmpLiveBtn');
 check('Go live button present', !!liveBtn && !liveBtn.hidden);
 await sleep(600); // let validation settle
 if ($('cmpStatus').classList.contains('ok')) {
+  // UI v41: Go live first asks WHERE — join a matching context or the canvas's own.
   liveBtn.click();
+  await sleep(200);
+  const pick1 = $('cmpLivePick');
+  check('go-live opens the context chooser', !!pick1 && window.__goLive.length === 0);
+  const joinRadio = pick1.querySelector('input[value="ctxJOIN"]');
+  check('matching context offered and preselected (unbound partner first)', !!joinRadio && joinRadio.checked);
+  check('canvas-own context offered as the alternative', !!pick1.querySelector('input[name="cmpLpCtx"][value=""]'));
+  $('cmpLpGo').click();
   await sleep(300);
-  check('go-live sends the draft with canvas identity', window.__goLive.length === 1 && !!window.__goLive[0].nodeId && !!window.__goLive[0].contextId);
-  const ids1 = { n: window.__goLive[0].nodeId, c: window.__goLive[0].contextId };
+  check('joining sends the JOINED contextId with the canvas nodeId',
+    window.__goLive.length === 1 && window.__goLive[0].contextId === 'ctxJOIN' &&
+    window.__goLive[0].contextName === 'Landlord hall' && !!window.__goLive[0].nodeId);
+  const ids1 = { n: window.__goLive[0].nodeId };
   liveBtn.click(); // back to draft
   await sleep(200);
   check('back-to-draft stops the live run', (window.__liveStops || 0) >= 1);
-  liveBtn.click(); // live again
+  liveBtn.click(); // live again — chooser remembers the join
+  await sleep(200);
+  const pick2 = $('cmpLivePick');
+  check('chooser reopens with the previous join preselected', !!pick2 && pick2.querySelector('input[value="ctxJOIN"]').checked);
+  pick2.querySelector('input[name="cmpLpCtx"][value=""]').checked = true; // this time: canvas's own context
+  $('cmpLpGo').click();
   await sleep(300);
-  check('SAME canvas identity on every go-live (no re-mint)', window.__goLive.length === 2 && window.__goLive[1].nodeId === ids1.n && window.__goLive[1].contextId === ids1.c);
-  check('second go-live never repeats init', window.__goLive[0].applyInit === true ? window.__goLive[1].applyInit === false : window.__goLive[1].applyInit === false);
+  check('canvas-context go-live keeps the SAME canvas identity (no re-mint)',
+    window.__goLive.length === 2 && window.__goLive[1].nodeId === ids1.n &&
+    window.__goLive[1].contextId && window.__goLive[1].contextId !== 'ctxJOIN');
+  check('second go-live never repeats init', window.__goLive[0].applyInit === true && window.__goLive[1].applyInit === false);
   const stopsBefore = window.__liveStops || 0;
   const t = $('cmpFtitle');
   t.value = 'Edited while live';
