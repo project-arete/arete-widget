@@ -173,6 +173,24 @@ check('lamp lands on the canvas stack', [...$('cmpViewList').querySelectorAll('.
 check('still a valid widget after the drop', $('cmpStatus').classList.contains('ok'));
 check('inspector shows the lamp fields', $('cmpInspector').textContent.includes('lamp'));
 
+check('lamp inspector has NO read-only checkbox (already display-only)', !$('cmpInspector').querySelector('[data-f="readonly"]'));
+
+// drop a toggle — interactive, so the read-only override applies (UI v40)
+const togBtn = [...$('cmpPalette').querySelectorAll('button')].find((b) => b.textContent === 'toggle');
+togBtn.click();
+await sleep(600);
+const roBox = $('cmpInspector').querySelector('[data-f="readonly"]');
+check('toggle inspector offers the read-only checkbox', !!roBox);
+roBox.checked = true;
+roBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+await sleep(600);
+check('read-only toggle lands in the YAML', $('cmpYaml').value.includes('readonly: true'));
+check('read-only toggle draft stays valid', $('cmpStatus').classList.contains('ok'));
+// clean up: remove the toggle so the rest of the walkthrough sees the original canvas
+[...$('cmpViewList').querySelectorAll('.cmp-vrow')].filter((r) => r.querySelector('.t')?.textContent === 'toggle')
+  .forEach((r) => r.querySelector('[data-a="rm"]')?.click());
+await sleep(600);
+
 // YAML is the same document
 const yamlText = $('cmpYaml').value;
 check('YAML panel carries the canvas (widget/capability/lamp)',

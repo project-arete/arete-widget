@@ -118,6 +118,47 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
   assert.ok(!res.ok && res.errors.some((e) => e.includes('may not write')));
   ok('wrong-direction write is refused');
 }
+
+// ---- readonly: force the display branch on interactive primitives ----
+{
+  // Writable bind + readonly — valid; flag survives into the model view AND
+  // the property STAYS in model.writable (rules/init may still write it).
+  const res = validateDefinition({
+    widget: 'x', title: 'X',
+    capabilities: [{ profile: 'padi.light', role: 'consumer' }],
+    view: [{ type: 'toggle', bind: 'cState', readonly: true }],
+  }, PROFILES);
+  assert.ok(res.ok, res.errors.join('; '));
+  assert.equal(res.model.view[0].readonly, true);
+  assert.ok(res.model.writable.includes('cState'));
+  ok('readonly toggle on a writable bind: valid, flag kept, prop stays writable');
+}
+{
+  // readonly waives the toggle/field writable-bind requirement — a consumer
+  // may SHOW the provider-written sOut through a toggle rendering.
+  const res = validateDefinition({
+    widget: 'x', title: 'X',
+    capabilities: [{ profile: 'padi.light', role: 'consumer' }],
+    view: [{ type: 'toggle', bind: 'sOut', readonly: true }],
+  }, PROFILES);
+  assert.ok(res.ok, res.errors.join('; '));
+  ok('readonly toggle may bind a peer-written property');
+}
+{
+  // readonly is ignored on non-interactive primitives (value) and on rtt
+  // (whose send MUST write).
+  const res = validateDefinition({
+    widget: 'x', title: 'X',
+    capabilities: [{ profile: 'padi.light', role: 'consumer' }],
+    view: [
+      { type: 'value', bind: 'sOut', readonly: true },
+      { type: 'rtt', send: 'cState', echo: 'sOut', readonly: true },
+    ],
+  }, PROFILES);
+  assert.ok(res.ok, res.errors.join('; '));
+  assert.ok(!res.model.view[0].readonly && !res.model.view[1].readonly);
+  ok('readonly ignored on value and rtt');
+}
 {
   const res = validateDefinition({
     widget: 'x', title: 'X',

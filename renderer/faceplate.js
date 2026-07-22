@@ -477,7 +477,9 @@ function build() {
     }
     const builder = BUILDERS[prim.type];
     if (!builder) continue;
-    const writable = prim.bind ? fp.writable.includes(prim.bind) : false;
+    // readonly: true forces the display branch even when the role may write —
+    // rules/init can still write the property; the view just never does.
+    const writable = prim.bind ? fp.writable.includes(prim.bind) && !prim.readonly : false;
     col.appendChild(wrap(prim, builder(prim, writable)));
   }
 }

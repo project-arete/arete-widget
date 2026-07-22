@@ -33,6 +33,9 @@ const ROLES = ['provider', 'consumer'];
 // (except toggle/field, which REQUIRE a writable bind).
 // Exported so authoring surfaces (the Composer) share the single source of truth.
 export const PRIMITIVES = ['lamp', 'toggle', 'value', 'label', 'field', 'meter', 'options', 'image', 'date', 'stepper', 'split', 'rtt'];
+// Primitives with a control rendering that `readonly: true` can force into
+// their read-only branch (rtt excluded — its send MUST write).
+export const INTERACTIVE = ['toggle', 'field', 'meter', 'options', 'date', 'stepper'];
 
 /**
  * Extract the property map from a registry profile JSON (latest version).
@@ -215,6 +218,10 @@ export function validateDefinition(raw, profileJsons) {
     if (!PRIMITIVES.includes(type)) { e(`${where}: unknown primitive "${type}" (allowed: ${PRIMITIVES.join(', ')}).`); return; }
     const prim = { type };
     if (typeof v.caption === 'string') prim.caption = v.caption;
+    // readonly: true — purely visual: render the read-only branch even when
+    // this widget's role may write the bound property. The prop stays in
+    // model.writable, so rules/init can still write what the view only shows.
+    if ((v.readonly === true || v.readonly === 'true') && INTERACTIVE.includes(type)) prim.readonly = true;
 
     if (type === 'split') {
       // Layout marker: starts the second column (you | them faceplates).
@@ -242,7 +249,9 @@ export function validateDefinition(raw, profileJsons) {
     } else {
       if (typeof v.bind !== 'string' || !v.bind.trim()) { e(`${where}: ${type} requires \`bind:\`.`); return; }
       prim.bind = v.bind.trim();
-      if (type === 'toggle' || type === 'field') {
+      if ((type === 'toggle' || type === 'field') && !prim.readonly) {
+        // toggle/field are pure inputs — pointless without write access —
+        // UNLESS readonly forces the display branch.
         if (!assertWritable(prim.bind, where)) return;
       } else if (!assertReadable(prim.bind, where)) return;
     }
@@ -364,7 +373,7 @@ function orderKeys(obj, known) {
 
 const TOP_ORDER = ['widget', 'title', 'description', 'icon', 'color', 'meta', 'capabilities', 'view', 'behavior'];
 const CAP_ORDER = ['profile', 'role'];
-const VIEW_ORDER = ['type', 'bind', 'text', 'caption', 'on', 'off', 'min', 'max', 'step', 'values', 'send', 'echo'];
+const VIEW_ORDER = ['type', 'bind', 'readonly', 'text', 'caption', 'on', 'off', 'min', 'max', 'step', 'values', 'send', 'echo'];
 const RULE_ORDER = ['when', 'set', 'map', 'aggregate', 'reply', 'gate', 'is', 'else'];
 const META_ORDER = ['author', 'created', 'composed'];
 const BEHAVIOR_ORDER = ['init', 'rules'];

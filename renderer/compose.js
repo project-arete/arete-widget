@@ -585,7 +585,11 @@
       return;
     }
     const props = knownProps();
-    const needW = v.type === 'toggle' || v.type === 'field';
+    // Interactive primitives can be forced into their read-only rendering —
+    // show, don't touch — even when the role may write the bind (mirrors
+    // INTERACTIVE in core/widget-spec.js).
+    const canReadonly = ['toggle', 'field', 'meter', 'options', 'date', 'stepper'].includes(v.type);
+    const needW = (v.type === 'toggle' || v.type === 'field') && !v.readonly;
     const bindSel = (cu, field, writableOnly) => {
       const opts = props
         .filter((p) => (writableOnly ? p.writable : true))
@@ -625,11 +629,21 @@
     if (v.type !== 'split') {
       html += `<label>caption <input data-f="caption" type="text" value="${esc(v.caption ?? '')}" /></label>`;
     }
+    if (canReadonly) {
+      html += `<label class="checkbox cmp-check"><input data-f="readonly" type="checkbox"${v.readonly ? ' checked' : ''} /><span>read only — display the value, never write it (rules still can)</span></label>`;
+    }
     ui.inspector.innerHTML = html;
     ui.inspector.querySelectorAll('[data-f]').forEach((el) => {
       el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
         const f = el.dataset.f;
         const val = el.value;
+        if (f === 'readonly') {
+          el.checked ? v.readonly = true : delete v.readonly;
+          touched();
+          renderViewList();
+          renderInspector(); // bind picker widens/narrows with the flag
+          return;
+        }
         if (f === 'values') {
           v.values = val.split(',').map((x) => x.trim()).filter(Boolean);
         } else if (f === 'min' || f === 'max' || f === 'step') {
