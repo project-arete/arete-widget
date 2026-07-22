@@ -315,6 +315,28 @@ await new Promise((r) => setTimeout(r, 10));
 assert('All-view write is unscoped (manager fans out per context)',
   w3.__actions.length === 2 && w3.__actions[1].connId === null);
 
+// Instant hover card (UI v44): synchronous on mouseenter — no OS delay —
+// and carries context, node, system, CP, conn id, and the live values.
+{
+  const pill310 = q3('#fpStrip .peer')[2];
+  assert('pills carry NO native title (delay killer)', !pill310.title);
+  pill310.dispatchEvent(new w3.Event('mouseenter'));
+  const tip = d3.querySelector('.fp-tip');
+  assert('hover card appears IMMEDIATELY on mouseenter', !!tip && !tip.hidden);
+  const t = tip.textContent;
+  assert('card names the context', t.includes('Suite 310'));
+  assert('card names the node + system', t.includes('Tina') && t.includes('Tina Co'));
+  assert('card names the CP + connection', t.includes('padi.lease.basic') && t.includes('t2'));
+  assert('card shows that connection\'s LIVE values', t.includes('rent') && t.includes('5200'));
+  pill310.dispatchEvent(new w3.Event('mouseleave'));
+  assert('card hides on mouseleave', tip.hidden);
+  q3('#fpStrip .peer')[0].dispatchEvent(new w3.Event('mouseenter'));
+  const tAll = d3.querySelector('.fp-tip').textContent;
+  assert('All-pill card summarizes places + write semantics',
+    tAll.includes('2 connections') && tAll.includes('Suite 200, Suite 310') && tAll.includes('broadcast'));
+  q3('#fpStrip .peer')[0].dispatchEvent(new w3.Event('mouseleave'));
+}
+
 if (w3.__errors.length) failures.push('part3 uncaught errors: ' + w3.__errors);
 if (failures.length) { console.error('\n❌ FAIL —', failures.join('; ')); process.exit(1); }
 console.log('\n✅ PASS — scoped control, mixed own-props, identity sync, per-CP pill groups, and multi-context place pills all work.');

@@ -244,3 +244,23 @@ main.cols .fp-col:first-child { border-right: 1px dashed var(--border); padding-
   margin-right: 2px;
   white-space: nowrap;
 }
+
+/* Instant hover card for peer pills (UI v44) — no OS tooltip delay. */
+.fp-tip {
+  position: fixed;
+  z-index: 50;
+  max-width: 240px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text);
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.fp-tip-title { font-weight: 600; font-size: 12px; margin-bottom: 5px; }
+.fp-tip-row { display: flex; gap: 10px; justify-content: space-between; line-height: 1.5; }
+.fp-tip-row .k { color: var(--muted); white-space: nowrap; }
+.fp-tip-row .v { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.fp-tip-sep { border-top: 1px solid var(--border); margin: 5px 0; }

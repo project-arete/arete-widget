@@ -79,6 +79,7 @@ let stripShown = false;
 let stripEverRendered = false; // first render sets the baseline — no resize
 function renderStrip() {
   rebuildGroups();
+  hideTip(); // a re-render may replace the hovered pill — never strand the card
   const strip = $('fpStrip');
   if (!groupsList.length) {
     if (stripShown && stripEverRendered) {
@@ -103,12 +104,19 @@ function renderStrip() {
     });
   }
   stripEverRendered = true;
-  const mk = (profile, id, label, title) => {
+  const mk = (profile, id, label, tip) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'peer' + (selFor(profile) === id ? ' on' : '');
     b.textContent = label;
-    if (title) b.title = title;
+    // INSTANT hover card (no native title — its OS delay hides exactly the
+    // information you hover for: which context and node this pill IS).
+    if (tip) {
+      b.addEventListener('mouseenter', () => showTip(b, tip()));
+      b.addEventListener('mouseleave', hideTip);
+      b.addEventListener('focus', () => showTip(b, tip()));
+      b.addEventListener('blur', hideTip);
+    }
     b.addEventListener('click', () => {
       selByProfile[profile] = id;
       renderStrip();
@@ -122,7 +130,7 @@ function renderStrip() {
   // against its OWN CP's selection only. Pill label = NODE name (system
   // names are often identical across peers) — except on a MULTI-CONTEXT
   // widget, where the pill is the PLACE: the context name is exactly the
-  // human label ("Suite 200"), the peer node goes in the tooltip.
+  // human label ("Suite 200"), the peer detail lives in the hover card.
   for (const g of groupsList) {
     const grp = el('span', 'peer-group');
     if (groupsList.length > 1) {
@@ -130,14 +138,73 @@ function renderStrip() {
       tag.title = g.profile;
       grp.appendChild(tag);
     }
-    grp.appendChild(mk(g.profile, 'all', `All · ${g.peers.length}`, `aggregate view of every ${g.profile} connection`));
+    grp.appendChild(mk(g.profile, 'all', `All · ${g.peers.length}`, () => allTipHtml(g)));
     for (const p of g.peers) {
       const label = multiCtx && p.context ? p.context : p.node;
-      const title = `${p.system} · ${p.node} (${p.profile})` + (p.context ? ` — in ${p.context}` : '');
-      grp.appendChild(mk(g.profile, p.connId, label, title));
+      grp.appendChild(mk(g.profile, p.connId, label, () => peerTipHtml(p)));
     }
     strip.appendChild(grp);
   }
+}
+
+// ---- instant hover card for pills -----------------------------------------
+// A pill is ONE connection; the card answers "connected where, to whom, and
+// what does that connection carry right now". Content is built at HOVER time,
+// so the values are always the latest push.
+const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let tipEl = null;
+function ensureTip() {
+  if (!tipEl) {
+    tipEl = document.createElement('div');
+    tipEl.className = 'fp-tip';
+    tipEl.hidden = true;
+    document.body.appendChild(tipEl);
+  }
+  return tipEl;
+}
+function showTip(anchor, html) {
+  const tip = ensureTip();
+  tip.innerHTML = html;
+  tip.hidden = false;
+  // Measure, then clamp inside the (small) faceplate window; below the pill
+  // by default, above it when there is no room.
+  const r = anchor.getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const h = tip.offsetHeight;
+  let x = Math.min(Math.max(4, r.left), Math.max(4, window.innerWidth - w - 4));
+  let y = r.bottom + 6;
+  if (y + h > window.innerHeight - 4) y = Math.max(4, r.top - h - 6);
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+}
+function hideTip() {
+  if (tipEl) tipEl.hidden = true;
+}
+const tipRow = (k, v) => `<div class="fp-tip-row"><span class="k">${escHtml(k)}</span><span class="v">${escHtml(v)}</span></div>`;
+function connValuesHtml(connId) {
+  const props = perConn[connId] || {};
+  const names = Object.keys(props);
+  if (!names.length) return tipRow('carries', 'no values yet');
+  const shown = names.slice(0, 5);
+  return shown.map((n) => tipRow(n, props[n])).join('') +
+    (names.length > shown.length ? tipRow('…', `${names.length - shown.length} more`) : '');
+}
+function peerTipHtml(p) {
+  return `<div class="fp-tip-title">${escHtml(multiCtx && p.context ? p.context : p.node)}</div>` +
+    (p.context ? tipRow('context', p.context) : '') +
+    tipRow('node', p.node) +
+    tipRow('system', p.system) +
+    tipRow('CP', p.profile) +
+    tipRow('conn', String(p.connId).slice(0, 10) + (String(p.connId).length > 10 ? '…' : '')) +
+    `<div class="fp-tip-sep"></div>` + connValuesHtml(p.connId);
+}
+function allTipHtml(g) {
+  const places = [...new Set(g.peers.map((p) => p.context).filter(Boolean))];
+  return `<div class="fp-tip-title">All · ${g.peers.length} connections</div>` +
+    tipRow('CP', g.profile) +
+    (places.length ? tipRow(places.length === 1 ? 'context' : 'contexts', places.join(', ')) : '') +
+    tipRow('view', 'aggregate — disagreements show as mixed') +
+    tipRow('writes', 'broadcast to every connection');
 }
 
 // Build the effective state for the current selection, and the mixed map for
