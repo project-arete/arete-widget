@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
-import { validateDefinition, orderDefinition, PRIMITIVES } from '../core/widget-spec.js';
+import { validateDefinition, orderDefinition, parseProfile, PRIMITIVES } from '../core/widget-spec.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -147,6 +147,20 @@ console.log('— spec additions —');
   check('capability canonical order', JSON.stringify(Object.keys(o.capabilities[0])) === JSON.stringify(['profile', 'role']));
 }
 check('PRIMITIVES exported for authoring surfaces', Array.isArray(PRIMITIVES) && PRIMITIVES.length === 12);
+
+console.log('— registry index (the CP picker\'s data source) —');
+{
+  // One GET of cp.padi.io/profiles returns EVERY profile with full
+  // versions/properties — the picker (compose:profileIndex) rides on this.
+  const res = await fetch('https://cp.padi.io/profiles', { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+  const list = res.ok ? await res.json() : null;
+  check('GET /profiles returns the registry index', Array.isArray(list) && list.length >= 40);
+  const light = Array.isArray(list) ? list.find((p) => p.name === 'padi.light') : null;
+  check('index entries carry full versions inline', !!(light && Array.isArray(light.versions) && light.versions.length));
+  const parsed = light ? parseProfile(light) : null;
+  check('parseProfile works on an index entry (flags survive)',
+    !!(parsed && parsed.props.sOut && parsed.props.sOut.propagate && parsed.props.sOut.writer === 'server'));
+}
 
 console.log(`\n${pass + fail} checks — ${pass} passed, ${fail} failed.`);
 if (fail) {

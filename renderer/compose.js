@@ -30,6 +30,7 @@
     exportBtn: $('cmpExport'), saveBtn: $('cmpSave'),
     palette: $('cmpPalette'), viewList: $('cmpViewList'),
     preview: $('cmpPreview'), previewNote: $('cmpPreviewNote'), errors: $('cmpErrors'),
+    liveBtn: $('cmpLiveBtn'),
     yaml: $('cmpYaml'), yamlApply: $('cmpYamlApply'),
     identity: $('cmpIdentity'), caps: $('cmpCaps'), inspector: $('cmpInspector'),
     rules: $('cmpRules'), rulesNote: $('cmpRulesNote'), mock: $('cmpMock'),
@@ -51,6 +52,20 @@
   let bridge = null;      // preview bridge for the CURRENT iframe
 
   const uid = () => Math.random().toString(36).slice(2, 10);
+  const B62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const b62 = (len = 22) => {
+    const bytes = crypto.getRandomValues(new Uint8Array(len));
+    let out = '';
+    for (const b of bytes) out += B62[b % 62];
+    return out;
+  };
+  // Every canvas owns ONE stable node/context identity, minted at creation
+  // and reused on every go-live (v29 attach; no DELETE in the SDK — reuse,
+  // never re-mint, so preview cycles cannot orphan realm nodes).
+  const ensureLiveIds = (d) => {
+    if (!d.liveIds) d.liveIds = { nodeId: b62(22), contextId: b62(22), initDone: false };
+    return d.liveIds;
+  };
 
   function loadDrafts() {
     try {
@@ -84,6 +99,7 @@
         view: [{ type: 'label', text: 'New widget' }],
       },
       mock: {},
+      liveIds: { nodeId: b62(22), contextId: b62(22), initDone: false },
       updatedAt: Date.now(),
     };
   }
@@ -91,6 +107,7 @@
   // --------------------------------------------------------------- pipeline
   let checkTimer = null;
   function touched(structural = true) {
+    dropLive('edited — back to the draft canvas');
     persist();
     clearTimeout(checkTimer);
     checkTimer = setTimeout(() => refresh(structural), 350);
@@ -134,6 +151,7 @@
     }
   }
   ui.sel.addEventListener('change', () => {
+    dropLive();
     cur = drafts.find((d) => d.key === ui.sel.value) || cur;
     selIdx = -1;
     persist();
@@ -282,6 +300,111 @@
     }
   }
 
+  // ---------------------------------------------------- CP registry picker
+  // Phase 2: browse/search cp.padi.io instead of typing CP names. One index
+  // fetch (main caches it and seeds the per-profile cache) powers search,
+  // the property/flag preview, and role choice.
+  let pickerOpen = false;
+  let pickerIndex = null; // [{name,title,comment,company,modified,props}]
+  let pickerError = '';
+  let pickerFilter = '';
+  let pickerSel = null;   // expanded profile name
+
+  async function loadPickerIndex(refresh) {
+    const res = await window.arete.composeProfileIndex(!!refresh);
+    pickerIndex = res.profiles || [];
+    pickerError = res.ok ? '' : (res.error || 'registry unreachable');
+  }
+
+  function pickerPropTable(props) {
+    const names = Object.keys(props || {});
+    if (!names.length) return '<span class="muted-note">no properties published</span>';
+    return names.map((n) => {
+      const p = props[n];
+      return `<span class="pn">${esc(n)}</span>` +
+        `<span class="cmp-flag">${p.writer === 'server' ? 'provider writes' : 'consumer writes'}</span>` +
+        (p.propagate ? '<span class="cmp-flag">propagate</span>' : '<span class="cmp-flag" title="not broadcast — crosses per-connection (addressed channel)">addressed</span>') +
+        (p.required ? '<span class="cmp-flag">required</span>' : '') +
+        (p.desc ? ` <span class="muted-note">${esc(p.desc)}</span>` : '');
+    }).join('<br/>');
+  }
+
+  function renderPicker(host) {
+    const box = document.createElement('div');
+    box.className = 'cmp-picker';
+    if (pickerIndex === null) {
+      box.innerHTML = '<p class="muted-note">loading the CP registry…</p>';
+      host.appendChild(box);
+      return;
+    }
+    const q = pickerFilter.trim().toLowerCase();
+    const hits = pickerIndex
+      .filter((p) => !q || [p.name, p.title, p.comment, p.company].some((x) => (x || '').toLowerCase().includes(q)))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    box.innerHTML = `
+      <div class="cmp-pk-head">
+        <input type="text" id="cmpPkSearch" placeholder="search ${pickerIndex.length} connection profiles…" value="${esc(pickerFilter)}" spellcheck="false" />
+        <button type="button" class="ghost" id="cmpPkRefresh" title="Re-fetch the registry index (cache-busted)">↻</button>
+        <button type="button" class="ghost" id="cmpPkClose" title="Close">✕</button>
+      </div>
+      ${pickerError ? `<p class="cmp-err">${esc(pickerError)} — showing the cached index.</p>` : ''}
+      <div class="cmp-pk-list" id="cmpPkList"></div>`;
+    host.appendChild(box);
+    const list = box.querySelector('#cmpPkList');
+    if (!hits.length) list.innerHTML = '<p class="muted-note">no profile matches — the registry is authoritative: a CP that is not listed cannot be used.</p>';
+    for (const p of hits) {
+      const row = document.createElement('div');
+      row.className = 'cmp-pk-row' + (pickerSel === p.name ? ' on' : '');
+      row.innerHTML = `<span class="pn">${esc(p.name)}</span><span class="pt">${esc(p.title)}</span>` +
+        `<span class="pc">${p.props ? Object.keys(p.props).length + ' props' : 'no versions'}</span>`;
+      row.addEventListener('click', () => {
+        pickerSel = pickerSel === p.name ? null : p.name;
+        renderCaps();
+      });
+      list.appendChild(row);
+      if (pickerSel === p.name) {
+        const prev = document.createElement('div');
+        prev.className = 'cmp-pk-prev';
+        const dup = (role) => (cur.def.capabilities || []).some((c) => c.profile === p.name && c.role === role);
+        prev.innerHTML = `
+          ${p.comment ? `<p class="muted-note">${esc(p.comment)}${p.company ? ' · ' + esc(p.company) : ''}</p>` : ''}
+          <div class="cmp-cap-props">${pickerPropTable(p.props)}</div>
+          <div class="cmp-pk-add">
+            <button type="button" class="primary" data-role="consumer" ${!p.props || dup('consumer') ? 'disabled' : ''}>Add as consumer</button>
+            <button type="button" class="primary" data-role="provider" ${!p.props || dup('provider') ? 'disabled' : ''}>Add as provider</button>
+          </div>`;
+        prev.querySelectorAll('[data-role]').forEach((b) => b.addEventListener('click', () => {
+          cur.def.capabilities = Array.isArray(cur.def.capabilities) ? cur.def.capabilities : [];
+          cur.def.capabilities.push({ profile: p.name, role: b.dataset.role });
+          pickerOpen = false;
+          pickerSel = null;
+          pickerFilter = '';
+          touched();
+          renderCaps();
+        }));
+        list.appendChild(prev);
+      }
+    }
+    box.querySelector('#cmpPkSearch').addEventListener('input', (e) => {
+      pickerFilter = e.target.value;
+      const at = e.target.selectionStart;
+      renderCaps();
+      const inp = $('cmpPkSearch');
+      if (inp) { inp.focus(); inp.setSelectionRange(at, at); }
+    });
+    box.querySelector('#cmpPkRefresh').addEventListener('click', async () => {
+      pickerIndex = null;
+      renderCaps();
+      await loadPickerIndex(true);
+      renderCaps();
+    });
+    box.querySelector('#cmpPkClose').addEventListener('click', () => {
+      pickerOpen = false;
+      pickerSel = null;
+      renderCaps();
+    });
+  }
+
   // ------------------------------------------------------------ capabilities
   function renderCaps() {
     const caps = Array.isArray(cur.def.capabilities) ? cur.def.capabilities : [];
@@ -315,17 +438,25 @@
       del.addEventListener('click', () => { caps.splice(i, 1); touched(); renderCaps(); });
       ui.caps.appendChild(box);
     });
-    const add = document.createElement('button');
-    add.type = 'button';
-    add.className = 'ghost';
-    add.textContent = '+ Add capability';
-    add.addEventListener('click', () => {
-      cur.def.capabilities = caps;
-      caps.push({ profile: '', role: 'consumer' });
-      touched();
-      renderCaps();
-    });
-    ui.caps.appendChild(add);
+    if (pickerOpen) {
+      renderPicker(ui.caps);
+    } else {
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'ghost';
+      add.id = 'cmpCapAdd';
+      add.textContent = '+ Add capability (browse the registry)';
+      add.addEventListener('click', async () => {
+        cur.def.capabilities = caps;
+        pickerOpen = true;
+        renderCaps();
+        if (pickerIndex === null) {
+          await loadPickerIndex(false);
+          renderCaps();
+        }
+      });
+      ui.caps.appendChild(add);
+    }
   }
 
   function propTable(inf, role) {
@@ -515,33 +646,155 @@
     });
   }
 
-  // ------------------------------------------------------- rules (read-only)
-  function renderRules() {
-    const b = cur.def.behavior || {};
-    const rules = Array.isArray(b.rules) ? b.rules : [];
-    const init = b.init && typeof b.init === 'object' ? b.init : {};
-    ui.rulesNote.textContent = rules.length ? `(${rules.length} — editable in a later phase)` : '(none — rule builder lands in Phase 3)';
-    let html = '';
-    if (Object.keys(init).length) {
-      html += `<div class="cmp-rule"><span class="kw">at start</span> set ` +
-        Object.entries(init).map(([k, v]) => `<code>${esc(k)}</code> = <code>${esc(v)}</code>`).join(', ') + '</div>';
+  // ------------------------------------------------------- rule builder (Phase 3)
+  // Rules are edited as data with validator-shaped constraints baked into the
+  // pickers; the sentence at the top of each card is the same rendering the
+  // read-only phase used. Unknown clause keys on imported rules are preserved
+  // untouched. Re-render discipline: while focus is inside the panel, we skip
+  // rebuilds (text inputs keep focus); the sentence catches up on blur.
+  function ruleSentence(r) {
+    let sent = `<span class="kw">when</span> <code>${esc(r.when ?? '?')}</code> changes → <span class="kw">set</span> <code>${esc(r.set ?? '?')}</code>`;
+    if (r.map && Object.keys(r.map).length) sent += `, <span class="kw">mapped</span> <code>${esc(Object.entries(r.map).map(([k, v]) => k + '→' + v).join(', '))}</code>`;
+    if (r.aggregate) sent += `, <span class="kw">aggregated by</span> <code>${esc(r.aggregate)}</code>`;
+    if (r.reply) sent += `, <span class="kw">replying per connection</span>`;
+    if (r.gate) {
+      sent += `, <span class="kw">gated on</span> <code>${esc(r.gate)}</code> <span class="kw">being</span> <code>${esc(r.is ?? '?')}</code>`;
+      if (r.else !== undefined) sent += `, <span class="kw">else</span> <code>${esc(r.else)}</code>`;
     }
     const KNOWN = ['when', 'set', 'map', 'aggregate', 'reply', 'gate', 'is', 'else'];
-    for (const r of rules) {
-      if (!r || typeof r !== 'object') continue;
-      let s = `<span class="kw">when</span> <code>${esc(r.when)}</code> changes → <span class="kw">set</span> <code>${esc(r.set)}</code>`;
-      if (r.map) s += `, <span class="kw">mapped</span> <code>${esc(Object.entries(r.map).map(([k, v]) => k + '→' + v).join(', '))}</code>`;
-      if (r.aggregate) s += `, <span class="kw">aggregated by</span> <code>${esc(r.aggregate)}</code>`;
-      if (r.reply) s += `, <span class="kw">replying per connection</span>`;
-      if (r.gate) {
-        s += `, <span class="kw">gated on</span> <code>${esc(r.gate)}</code> <span class="kw">being</span> <code>${esc(r.is)}</code>`;
-        if (r.else !== undefined) s += `, <span class="kw">else</span> <code>${esc(r.else)}</code>`;
-      }
-      const extra = Object.keys(r).filter((k) => !KNOWN.includes(k));
-      if (extra.length) s += ` <span class="cmp-rule-extra">· preserved clauses: ${esc(extra.join(', '))}</span>`;
-      html += `<div class="cmp-rule">${s}</div>`;
+    const extra = Object.keys(r).filter((k) => !KNOWN.includes(k));
+    if (extra.length) sent += ` <span class="cmp-rule-extra">· preserved: ${esc(extra.join(', '))}</span>`;
+    return sent;
+  }
+
+  const mapToText = (m) => Object.entries(m || {}).map(([k, v]) => `${k}=${v}`).join(', ');
+  function textToMap(text) {
+    const m = {};
+    for (const part of String(text).split(/[,;]/)) {
+      const eq = part.indexOf('=');
+      if (eq === -1) continue;
+      const k = part.slice(0, eq).trim();
+      const v = part.slice(eq + 1).trim();
+      if (k) m[k] = v;
     }
-    ui.rules.innerHTML = html || '<p class="muted-note">This widget has no behavior rules. Rules make a widget act on its own (mirror, map, aggregate…).</p>';
+    return Object.keys(m).length ? m : undefined;
+  }
+
+  function renderRules() {
+    if (ui.rules.contains(document.activeElement)) return; // keep focus (re-render rule)
+    const bhv = cur.def.behavior && typeof cur.def.behavior === 'object' && !Array.isArray(cur.def.behavior)
+      ? cur.def.behavior : (cur.def.behavior = {});
+    const rules = Array.isArray(bhv.rules) ? bhv.rules : [];
+    const init = bhv.init && typeof bhv.init === 'object' && !Array.isArray(bhv.init) ? bhv.init : {};
+    const props = knownProps();
+    const readable = props.map((p) => p.name);
+    const writable = props.filter((p) => p.writable).map((p) => p.name);
+    ui.rulesNote.textContent = rules.length ? `(${rules.length})` : '';
+    ui.rules.innerHTML = '';
+
+    const opts = (list, curVal, none) => {
+      let h = none ? `<option value="">${none}</option>` : '';
+      if (curVal && !list.includes(curVal)) h += `<option value="${esc(curVal)}" selected>${esc(curVal)} (unknown)</option>`;
+      for (const n of list) h += `<option value="${esc(n)}"${n === curVal ? ' selected' : ''}>${esc(n)}</option>`;
+      return h;
+    };
+    const cleanup = (obj) => { for (const k of ['map', 'aggregate', 'reply', 'gate', 'is', 'else']) if (obj[k] === undefined) delete obj[k]; };
+
+    // --- init (puts issued once, at first attach) ---
+    const initBox = document.createElement('div');
+    initBox.className = 'cmp-initbox';
+    initBox.innerHTML = '<p class="muted-note">At start, set:</p>';
+    for (const prop of Object.keys(init)) {
+      const row = document.createElement('div');
+      row.className = 'cmp-initrow';
+      row.innerHTML = `<select>${opts(writable, prop)}</select><input type="text" value="${esc(init[prop])}" placeholder="value" /><button type="button" class="ghost danger">✕</button>`;
+      const [sel] = row.getElementsByTagName('select');
+      const [inp] = row.getElementsByTagName('input');
+      sel.addEventListener('change', () => { const v = init[prop]; delete init[prop]; init[sel.value] = v; bhv.init = init; touched(); renderRules(); });
+      inp.addEventListener('input', () => { init[prop] = inp.value; bhv.init = init; touched(); });
+      row.querySelector('button').addEventListener('click', () => { delete init[prop]; if (!Object.keys(init).length) delete bhv.init; touched(); renderRules(); });
+      initBox.appendChild(row);
+    }
+    const addInit = document.createElement('button');
+    addInit.type = 'button';
+    addInit.className = 'ghost';
+    addInit.textContent = '+ init value';
+    addInit.disabled = !writable.length;
+    addInit.addEventListener('click', () => {
+      const free = writable.find((w) => !(w in init));
+      if (!free) return;
+      init[free] = '0';
+      bhv.init = init;
+      touched();
+      renderRules();
+    });
+    initBox.appendChild(addInit);
+    ui.rules.appendChild(initBox);
+
+    // --- rule cards ---
+    rules.forEach((r, i) => {
+      const card = document.createElement('div');
+      card.className = 'cmp-rule cmp-rule-edit';
+      const gateFields = r.gate
+        ? `<label>is <input data-f="is" type="text" value="${esc(r.is ?? '')}" placeholder="required" /></label>
+           <label>else <input data-f="else" type="text" value="${esc(r.else ?? '')}" placeholder="(hold last)" /></label>`
+        : '<span></span><span></span>';
+      card.innerHTML = `
+        <div class="cmp-rule-sent">${ruleSentence(r)}</div>
+        <div class="cmp-rulegrid">
+          <label>when <select data-f="when">${opts(readable, r.when)}</select></label>
+          <label>set <select data-f="set">${opts(writable, r.set)}</select></label>
+          <label>map <input data-f="map" type="text" value="${esc(mapToText(r.map))}" placeholder="1=on, 0=off" /></label>
+          <label>aggregate <select data-f="aggregate">${opts(['average', 'min', 'max'], r.aggregate || '', '—')}</select></label>
+          <label class="checkbox cmp-reply"><input data-f="reply" type="checkbox"${r.reply ? ' checked' : ''}${r.aggregate ? ' disabled' : ''} /><span>reply per connection</span></label>
+          <label>gate <select data-f="gate">${opts(readable.filter((n) => n !== r.set), r.gate || '', '—')}</select></label>
+          ${gateFields}
+          <button type="button" class="ghost danger cmp-rule-del" title="Remove rule">✕</button>
+        </div>`;
+      card.querySelectorAll('[data-f]').forEach((el) => {
+        el.addEventListener(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input', () => {
+          const f = el.dataset.f;
+          if (f === 'map') r.map = textToMap(el.value);
+          else if (f === 'reply') r.reply = el.checked ? true : undefined;
+          else if (f === 'aggregate') { r.aggregate = el.value || undefined; if (r.aggregate) r.reply = undefined; }
+          else if (f === 'gate') {
+            r.gate = el.value || undefined;
+            if (!r.gate) { r.is = undefined; r.else = undefined; }
+            else if (r.is === undefined) r.is = '';
+          } else if (f === 'is') r.is = el.value;
+          else if (f === 'else') r.else = el.value === '' ? undefined : el.value;
+          else r[f] = el.value;
+          cleanup(r);
+          touched();
+          if (el.tagName === 'SELECT' || el.type === 'checkbox') renderRules();
+        });
+      });
+      card.querySelector('.cmp-rule-del').addEventListener('click', () => {
+        rules.splice(i, 1);
+        if (!rules.length) delete bhv.rules;
+        touched();
+        renderRules();
+      });
+      ui.rules.appendChild(card);
+    });
+
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'ghost';
+    add.id = 'cmpRuleAdd';
+    add.textContent = '+ Add rule';
+    add.disabled = !readable.length || !writable.length;
+    add.title = add.disabled ? 'Add a capability first — rules read and write its properties' : 'Add a behavior rule';
+    add.addEventListener('click', () => {
+      const when = readable.find((n) => n !== writable[0]) || readable[0];
+      const set = writable.find((n) => n !== when) || writable[0];
+      bhv.rules = rules;
+      rules.push({ when, set });
+      cur.def.behavior = bhv;
+      touched();
+      renderRules();
+    });
+    ui.rules.appendChild(add);
   }
 
   // ------------------------------------------------------------- mock state
@@ -621,6 +874,9 @@
         view: model.view,
         writable: model.writable,
         localOnly: model.writable.filter((p) => model.resolve[p] && !model.resolve[p].propagate),
+        bindProfile: Object.fromEntries(Object.entries(model.resolve)
+          .filter(([, r]) => r !== 'AMBIGUOUS')
+          .map(([prop, r]) => [prop, r.profile])),
         hasRules: !!(model.behavior.rules || []).length,
         state: { ...state },
         connections: 0,
@@ -662,6 +918,122 @@
   }
 
   const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+  // ------------------------------------------------------ go-live (Phase 3)
+  // The SAME canvas flips between mock state (draft) and the realm (live).
+  // Going live re-attaches the canvas's stable node/context via the v29
+  // value-preserving path in main; editing anything drops back to draft.
+  let liveMode = false;
+  let liveLast = null; // latest live payload from main
+
+  function updateLiveBtn() {
+    if (!ui.liveBtn) return;
+    ui.liveBtn.classList.toggle('on', liveMode);
+    ui.liveBtn.textContent = liveMode ? '● live — back to draft' : 'Go live';
+    ui.previewNote.textContent = liveMode
+      ? 'LIVE on the realm — the canvas is the widget now'
+      : 'rendered by the real faceplate renderer · mock state';
+  }
+
+  function dropLive(note) {
+    if (!liveMode) return;
+    liveMode = false;
+    liveLast = null;
+    if (window.arete.composeLiveStop) window.arete.composeLiveStop().catch(() => {});
+    updateLiveBtn();
+    buildPreview();
+    if (note) { ui.status.textContent = note; ui.status.className = 'cmp-status'; }
+  }
+
+  function makeLiveBridge(model) {
+    let stateCb = null;
+    let themeCb = null;
+    const first = liveLast || { state: {}, connections: 0, peers: [], perConn: {} };
+    const api = {
+      load: async () => ({
+        id: 'draft-live',
+        name: cur.def.title || cur.def.widget || 'Draft',
+        contextName: 'live · ' + (cur.def.title || cur.def.widget || 'draft'),
+        widgetId: cur.def.widget || 'draft',
+        title: model.title,
+        icon: model.icon || '',
+        color: model.color || '',
+        view: model.view,
+        writable: model.writable,
+        localOnly: model.writable.filter((p) => model.resolve[p] && !model.resolve[p].propagate),
+        bindProfile: Object.fromEntries(Object.entries(model.resolve)
+          .filter(([, r]) => r !== 'AMBIGUOUS')
+          .map(([prop, r]) => [prop, r.profile])),
+        hasRules: !!(model.behavior.rules || []).length,
+        state: first.state,
+        connections: first.connections,
+        peers: first.peers,
+        perConn: first.perConn,
+        rtt: {},
+        attached: true,
+        pinned: false,
+        theme: document.body.classList.contains('light') ? 'light' : 'dark',
+      }),
+      action: async (prop, value, connId) => {
+        await window.arete.composeLiveAction({ property: prop, value: String(value), connId: connId || null }).catch(() => {});
+      },
+      onState: (cb) => { stateCb = cb; return () => { stateCb = null; }; },
+      onTheme: (cb) => { themeCb = cb; },
+      onInfo: () => {},
+      setPinned: async (v) => !!v,
+    };
+    return {
+      api,
+      setTheme: (t) => themeCb && themeCb(t),
+      setState: () => {},
+      pushLive: (p) => {
+        if (stateCb) stateCb({ state: p.state, connections: p.connections, peers: p.peers, perConn: p.perConn, rtt: {} });
+        scheduleChrome();
+      },
+    };
+  }
+
+  if (ui.liveBtn) {
+    if (!window.arete.composeGoLive) ui.liveBtn.hidden = true;
+    else ui.liveBtn.addEventListener('click', async () => {
+      if (liveMode) { dropLive(); return; }
+      if (!check || !check.ok) return;
+      const ids = ensureLiveIds(cur);
+      ui.liveBtn.disabled = true;
+      const res = await window.arete.composeGoLive({
+        yamlText: check.yaml,
+        name: cur.def.title || cur.def.widget || 'Draft',
+        nodeId: ids.nodeId,
+        contextId: ids.contextId,
+        contextName: cur.def.title || cur.def.widget || 'Draft',
+        applyInit: !ids.initDone,
+      });
+      ui.liveBtn.disabled = false;
+      if (!res.ok) {
+        ui.status.textContent = res.error || 'go-live failed';
+        ui.status.className = 'cmp-status bad';
+        return;
+      }
+      ids.initDone = true;
+      persist();
+      liveMode = true;
+      liveLast = null;
+      updateLiveBtn();
+      await buildPreview();
+      ui.status.textContent = 'live — node registered, awaiting broker';
+      ui.status.className = 'cmp-status ok';
+    });
+  }
+  if (window.arete.onComposeLive) {
+    window.arete.onComposeLive((payload) => {
+      if (payload === null) {
+        if (liveMode) dropLive('the live draft went offline — back to mock preview');
+        return;
+      }
+      liveLast = payload;
+      if (liveMode && bridge && bridge.pushLive) bridge.pushLive(payload);
+    });
+  }
+
   function scheduleChrome() {
     raf(fixChrome);
     setTimeout(fixChrome, 120);
@@ -671,7 +1043,7 @@
       const doc = ui.preview.contentDocument;
       if (!doc) return;
       const chip = doc.getElementById('fpChip');
-      if (chip) { chip.className = 'chip wait'; chip.textContent = 'draft · mock'; }
+      if (chip && !liveMode) { chip.className = 'chip wait'; chip.textContent = 'draft · mock'; }
       const pin = doc.getElementById('fpPin');
       const close = doc.getElementById('fpClose');
       if (pin) pin.hidden = true;
@@ -693,9 +1065,13 @@
       ui.previewNote.textContent = 'preview unavailable (faceplate.html not readable)';
       return;
     }
-    const state = {};
-    for (const k in cur.mock) state[k] = String(cur.mock[k]);
-    bridge = makeBridge(check.model, state);
+    if (liveMode) {
+      bridge = makeLiveBridge(check.model);
+    } else {
+      const state = {};
+      for (const k in cur.mock) state[k] = String(cur.mock[k]);
+      bridge = makeBridge(check.model, state);
+    }
     window.__composeBridge = () => bridge.api;
     ui.preview.srcdoc = fpHtml.replace(
       '<script src="faceplate.js">',

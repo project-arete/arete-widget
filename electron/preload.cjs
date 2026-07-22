@@ -46,4 +46,9 @@ contextBridge.exposeInMainWorld('arete', {
   composeSaveLocal: (payload) => ipcRenderer.invoke('compose:saveLocal', payload),
   composeReadDef: (id) => ipcRenderer.invoke('compose:readDef', id),
   composeFaceplateHtml: () => ipcRenderer.invoke('compose:faceplateHtml'),
+  composeProfileIndex: (refresh) => ipcRenderer.invoke('compose:profileIndex', refresh),
+  composeGoLive: (spec) => ipcRenderer.invoke('compose:goLive', spec),
+  composeLiveAction: (payload) => ipcRenderer.invoke('compose:liveAction', payload),
+  composeLiveStop: () => ipcRenderer.invoke('compose:liveStop'),
+  onComposeLive: sub('compose:liveState'),
 });

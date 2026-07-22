@@ -165,3 +165,56 @@ button.danger { color: #e2635a; }
 /* mock state */
 .cmp-mockrow { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.2fr); gap: 8px; align-items: center; }
 .cmp-mockrow .mn { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+
+/* CP registry picker (Phase 2) */
+.cmp-picker {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--panel-2);
+  margin-bottom: 6px;
+}
+.cmp-pk-head { display: flex; gap: 6px; align-items: center; }
+.cmp-pk-head input { flex: 1; min-width: 0; }
+.cmp-pk-list { max-height: 300px; overflow-y: auto; margin-top: 8px; }
+.cmp-pk-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.cmp-pk-row:hover { background: var(--panel); }
+.cmp-pk-row.on { background: var(--panel); box-shadow: 0 0 0 1px var(--accent) inset; }
+.cmp-pk-row .pn { font-family: ui-monospace, Menlo, monospace; color: var(--text); }
+.cmp-pk-row .pt { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-pk-row .pc { color: var(--muted); font-size: 11px; }
+.cmp-pk-prev {
+  margin: 2px 4px 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cmp-pk-add { display: flex; gap: 8px; margin-top: 8px; }
+.cmp-pk-add button { font-size: 12px; padding: 4px 10px; }
+
+/* rule builder (Phase 3) */
+.cmp-initbox { margin-bottom: 8px; }
+.cmp-initrow { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) 28px; gap: 6px; margin: 4px 0; }
+.cmp-rule-edit { padding: 8px 9px; }
+.cmp-rule-sent { margin-bottom: 8px; }
+.cmp-rulegrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+  align-items: end;
+}
+.cmp-rulegrid label { font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.cmp-rulegrid label.checkbox { flex-direction: row; align-items: center; gap: 6px; }
+.cmp-rulegrid input, .cmp-rulegrid select { width: 100%; box-sizing: border-box; }
+.cmp-rule-del { justify-self: end; }
+
+/* go-live */
+#cmpLiveBtn.on { color: #4cc36a; border-color: #4cc36a66; border: 1px solid #4cc36a66; border-radius: 6px; }

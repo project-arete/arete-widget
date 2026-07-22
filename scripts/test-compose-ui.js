@@ -44,6 +44,27 @@ if (!PROFILES['padi.light']) {
   process.exit(0);
 }
 
+// live registry index, slimmed the way main.js serves it to the picker
+async function fetchIndex() {
+  try {
+    const res = await fetch('https://cp.padi.io/profiles', { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+    const list = res.ok ? await res.json() : null;
+    if (!Array.isArray(list)) return null;
+    for (const p of list) if (p && p.name) PROFILES[p.name] = p;
+    return list.map((p) => {
+      const parsed = parseProfile(p);
+      return { name: p.name, title: p.title || '', comment: p.comment || '', company: p.company || '', modified: p.modified || '', props: parsed ? parsed.props : null };
+    }).filter((p) => p.name);
+  } catch (_) {
+    return null;
+  }
+}
+const INDEX = await fetchIndex();
+if (!INDEX) {
+  console.log('cp.padi.io index unreachable — skipping Compose UI test.');
+  process.exit(0);
+}
+
 const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://localhost/index.html' });
 const { window } = dom;
 const { document } = window;
@@ -93,7 +114,14 @@ window.arete = {
     ? { id, source: 'library', text: fs.readFileSync(path.join(ROOT, 'widgets', 'bulb.yaml'), 'utf8') }
     : null),
   composeFaceplateHtml: async () => fs.readFileSync(ROOT + '/renderer/faceplate.html', 'utf8'),
+  composeProfileIndex: async () => ({ ok: true, profiles: INDEX }),
+  composeGoLive: async (spec) => { window.__goLive.push(spec); return { ok: true, systemId: 'SYS', nodeId: spec.nodeId, contextId: spec.contextId }; },
+  composeLiveAction: async (a) => window.__liveActions.push(a),
+  composeLiveStop: async () => { window.__liveStops = (window.__liveStops || 0) + 1; },
+  onComposeLive: (cb) => { window.__liveCb = cb; return () => {}; },
 };
+window.__goLive = [];
+window.__liveActions = [];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (id) => document.getElementById(id);
@@ -112,15 +140,24 @@ check('palette renders all 12 primitives', $('cmpPalette').querySelectorAll('but
 check('a default draft exists in the picker', $('cmpDraftSel').options.length >= 1);
 check('empty-capability draft reports issues', $('cmpStatus').classList.contains('bad'));
 
-// add a capability: padi.light consumer
-$('cmpCaps').querySelector('button.ghost:last-child, button.ghost').click(); // "+ Add capability" is the only ghost when list empty
-await sleep(450);
-const capBox = $('cmpCaps').querySelector('.cmp-cap');
-check('capability row appears', !!capBox);
-const capInput = capBox.querySelector('input');
-capInput.value = 'padi.light';
-capInput.dispatchEvent(new window.Event('change', { bubbles: true }));
+// add a capability THROUGH THE REGISTRY PICKER (Phase 2)
+$('cmpCapAdd').click();
+await sleep(300);
+check('picker opens with the registry index', !!$('cmpPkSearch') && $('cmpPkList').querySelectorAll('.cmp-pk-row').length >= 40);
+const search = $('cmpPkSearch');
+search.value = 'padi.light';
+search.dispatchEvent(new window.Event('input', { bubbles: true }));
+await sleep(150);
+const rows0 = $('cmpPkList').querySelectorAll('.cmp-pk-row');
+check('search narrows to padi.light', rows0.length === 1 && rows0[0].textContent.includes('padi.light'));
+rows0[0].dispatchEvent(new window.Event('click', { bubbles: true }));
+await sleep(150);
+check('preview shows flag table with sOut', $('cmpCaps').querySelector('.cmp-pk-prev').textContent.includes('sOut'));
+const addBtn = [...$('cmpCaps').querySelectorAll('.cmp-pk-add button')].find((b) => b.textContent === 'Add as consumer');
+addBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
 await sleep(600);
+const capBox = $('cmpCaps').querySelector('.cmp-cap');
+check('capability row appears from the picker', !!capBox && capBox.querySelector('input').value === 'padi.light');
 check('draft becomes VALID with padi.light consumer', $('cmpStatus').classList.contains('ok'));
 check('registry props table lists sOut', $('cmpCaps').textContent.includes('sOut'));
 
@@ -186,6 +223,61 @@ await sleep(700);
 check('bulb.yaml lands on the canvas as a new draft',
   $('cmpFid').value === 'bulb' && [...$('cmpViewList').querySelectorAll('.cmp-vrow .t')].some((t) => t.textContent === 'lamp'));
 check('imported draft is valid', $('cmpStatus').classList.contains('ok'));
+
+// ---- rule builder (Phase 3a) — driven on the CURRENT draft (bulb import) ----
+document.querySelector('#cmpRight details:nth-of-type(4)').open = true;
+const ruleAdd = $('cmpRuleAdd');
+check('rule builder offers + Add rule', !!ruleAdd && !ruleAdd.disabled);
+const rulesBefore = (window.eval('(' + JSON.stringify(null) + ')'), $('cmpRules').querySelectorAll('.cmp-rule-edit').length);
+ruleAdd.click();
+await sleep(600);
+check('a rule card appears', $('cmpRules').querySelectorAll('.cmp-rule-edit').length === rulesBefore + 1);
+const card = [...$('cmpRules').querySelectorAll('.cmp-rule-edit')].pop();
+const aggSel = card.querySelector('[data-f="aggregate"]');
+aggSel.value = 'average';
+aggSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+await sleep(600);
+check('aggregate lands in the YAML', $('cmpYaml').value.includes('aggregate: average'));
+const card2 = [...$('cmpRules').querySelectorAll('.cmp-rule-edit')].pop();
+const gateSel = card2.querySelector('[data-f="gate"]');
+check('gate picker excludes the rule\'s own set property', ![...gateSel.options].some((o) => o.value === card2.querySelector('[data-f="set"]').value));
+gateSel.value = [...gateSel.options].map((o) => o.value).find((v) => v && v !== '');
+gateSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+await sleep(400);
+const card3 = [...$('cmpRules').querySelectorAll('.cmp-rule-edit')].pop();
+const isInp = card3.querySelector('[data-f="is"]');
+check('choosing a gate reveals is/else fields', !!isInp && !!card3.querySelector('[data-f="else"]'));
+isInp.value = 'Approved';
+isInp.dispatchEvent(new window.Event('input', { bubbles: true }));
+isInp.blur && isInp.blur();
+await sleep(600);
+check('gate clause lands in the YAML', /gate: /.test($('cmpYaml').value) && $('cmpYaml').value.includes('is: Approved'));
+
+// ---- go-live (Phase 3b) — stable identity + stop-on-edit ----
+const liveBtn = $('cmpLiveBtn');
+check('Go live button present', !!liveBtn && !liveBtn.hidden);
+await sleep(600); // let validation settle
+if ($('cmpStatus').classList.contains('ok')) {
+  liveBtn.click();
+  await sleep(300);
+  check('go-live sends the draft with canvas identity', window.__goLive.length === 1 && !!window.__goLive[0].nodeId && !!window.__goLive[0].contextId);
+  const ids1 = { n: window.__goLive[0].nodeId, c: window.__goLive[0].contextId };
+  liveBtn.click(); // back to draft
+  await sleep(200);
+  check('back-to-draft stops the live run', (window.__liveStops || 0) >= 1);
+  liveBtn.click(); // live again
+  await sleep(300);
+  check('SAME canvas identity on every go-live (no re-mint)', window.__goLive.length === 2 && window.__goLive[1].nodeId === ids1.n && window.__goLive[1].contextId === ids1.c);
+  check('second go-live never repeats init', window.__goLive[0].applyInit === true ? window.__goLive[1].applyInit === false : window.__goLive[1].applyInit === false);
+  const stopsBefore = window.__liveStops || 0;
+  const t = $('cmpFtitle');
+  t.value = 'Edited while live';
+  t.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(200);
+  check('editing while live drops back to draft', (window.__liveStops || 0) > stopsBefore);
+} else {
+  check('go-live flow (draft valid)', false);
+}
 
 console.log(`\n${pass + fail} checks — ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);

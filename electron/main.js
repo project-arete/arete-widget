@@ -18,6 +18,7 @@ import yaml from 'js-yaml';
 import { installSystemIdPatch } from './arete-system-id.js';
 import { AreteService } from './arete-service.js';
 import { WidgetManager } from './widget-manager.js';
+import { ComposeRunner } from './compose-runner.js';
 import { validateDefinition, parseProfile, orderDefinition } from '../core/widget-spec.js';
 import { computeActions } from '../core/behavior-engine.js';
 import * as settings from './settings.js';
@@ -65,6 +66,7 @@ function defaultSystemName() {
 }
 
 const service = new AreteService();
+const composeRunner = new ComposeRunner({ service });
 let manager = null;
 let mainWindow = null;
 const faceplates = new Map(); // instanceId -> BrowserWindow
@@ -311,7 +313,16 @@ function wireEvents() {
   service.on('keys', (keys) => {
     toMain('arete:keys', keys);
     manager.onKeys(keys);
+    composeRunner.onKeys(keys);
   });
+  // A live draft dies with the channel: drop it and tell the Composer, which
+  // flips the canvas back to draft mode (go-live again is one click and the
+  // v29 attach makes it value-safe).
+  service.on('status', (st) => {
+    if ((st.state === 'disconnected' || st.state === 'error') && composeRunner.isLive()) composeRunner.stop();
+  });
+  composeRunner.on('state', (payload) => toMain('compose:liveState', payload));
+  composeRunner.on('log', (e) => toMain('arete:log', e));
   // SDK auto-reconnect recovered the channel: re-attach all widget instances
   // (registration is idempotent; behavior rules then reconverge on the realm).
   service.on('reconnected', () => manager.attachAll().catch(() => {}));
@@ -526,6 +537,13 @@ app.whenReady().then(async () => {
       localOnly: model
         ? model.writable.filter((p) => model.resolve[p] && !model.resolve[p].propagate)
         : [],
+      // bind -> owning CP, so the faceplate can scope pill groups, mixed
+      // detection, and write addressing to each property's OWN capability.
+      bindProfile: model
+        ? Object.fromEntries(Object.entries(model.resolve)
+            .filter(([, r]) => r !== 'AMBIGUOUS')
+            .map(([prop, r]) => [prop, r.profile]))
+        : {},
       hasRules: !!(model && model.behavior.rules.length),
       state: inst.state,
       connections: inst.connections,
@@ -643,6 +661,73 @@ app.whenReady().then(async () => {
       return null;
     }
   });
+
+  // Registry INDEX for the CP picker — one fetch of cp.padi.io/profiles
+  // returns every profile WITH full versions/properties (raw JSON, so the
+  // key-presence flags survive). The same fetch seeds the per-profile cache,
+  // so browsing, validation and offline re-checks all ride on it.
+  let profileIndex = null;
+  const slimIndex = (list) => (list || []).map((p) => {
+    const parsed = parseProfile(p);
+    return {
+      name: p.name,
+      title: p.title || '',
+      comment: p.comment || '',
+      company: p.company || '',
+      modified: p.modified || '',
+      props: parsed ? parsed.props : null,
+    };
+  }).filter((p) => p.name);
+  ipcMain.handle('compose:profileIndex', async (_evt, refresh) => {
+    if (!profileIndex || refresh) {
+      try {
+        const url = 'https://cp.padi.io/profiles' + (refresh ? '?cb=' + Date.now() : '');
+        const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const list = await res.json();
+        if (!Array.isArray(list)) throw new Error('not a profile list');
+        profileIndex = list;
+        for (const p of list) if (p && p.name) profileCache.set(p.name, p);
+      } catch (e) {
+        return { ok: !!profileIndex, error: String(e.message || e), profiles: slimIndex(profileIndex) };
+      }
+    }
+    return { ok: true, profiles: slimIndex(profileIndex) };
+  });
+
+  // ---- Composer go-live (Phase 3): run the draft on the realm ----
+  ipcMain.handle('compose:goLive', async (_evt, { yamlText, name, nodeId, contextId, contextName, applyInit }) => {
+    let raw;
+    try {
+      raw = yaml.load(yamlText);
+    } catch (err) {
+      return { ok: false, error: 'YAML parse error: ' + (err.message || err) };
+    }
+    const profiles = {};
+    for (const c of Array.isArray(raw?.capabilities) ? raw.capabilities : []) {
+      const n = c && typeof c.profile === 'string' ? c.profile.trim() : '';
+      if (n && !(n in profiles)) profiles[n] = await fetchProfile(n);
+    }
+    const res = validateDefinition(raw, profiles);
+    if (!res.ok) return { ok: false, error: res.errors[0] || 'Draft is not valid.' };
+    try {
+      const ids = await composeRunner.goLive({
+        model: res.model,
+        name: (name || '').trim() || res.model.title || res.model.id,
+        nodeId,
+        contextId,
+        contextName: (contextName || '').trim() || (name || res.model.title || 'Draft'),
+        applyInit: !!applyInit,
+      });
+      return { ok: true, ...ids };
+    } catch (err) {
+      return { ok: false, error: String(err.message || err) };
+    }
+  });
+  ipcMain.handle('compose:liveAction', (_evt, { property, value, connId }) =>
+    composeRunner.putProperty(property, String(value), connId || null)
+  );
+  ipcMain.handle('compose:liveStop', () => composeRunner.stop());
 
   // faceplate.html source for the preview iframe (fetch() can't read file://).
   ipcMain.handle('compose:faceplateHtml', () => {

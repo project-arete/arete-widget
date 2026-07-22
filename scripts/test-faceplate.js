@@ -128,6 +128,116 @@ assert('rename updates document title', document.title === 'Main Switch');
 assert('values untouched by identity push', values()[0] === '1');
 
 if (window.__errors.length) failures.push('uncaught errors: ' + window.__errors);
+
+// ===========================================================================
+// PART 2 — per-CP pill groups (UI v37). A multi-CP widget (Tenant Light
+// shape: one light + one lease connection) gets NO strip at all — a group
+// only exists for a CP with 2+ of its own connections — and writes always
+// resolve against the property's OWN CP group, never another CP's pill.
+// ===========================================================================
+console.log('\n— part 2: per-CP groups (multi-capability widget) —');
+const dom2 = new JSDOM(html, { runScripts: 'outside-only', url: 'file:///faceplate.html', pretendToBeVisual: true });
+const w2 = dom2.window;
+const d2 = w2.document;
+const subs2 = { state: [], theme: [], info: [] };
+w2.__actions = [];
+const PEERS_A = [
+  { connId: 'c1', system: 'Anto', node: 'West', profile: 'padi.light' },
+  { connId: 'l1', system: 'Anto', node: 'Landlord', profile: 'padi.lease.basic' },
+];
+w2.faceplate = {
+  instanceId: 'instB',
+  load: async () => ({
+    id: 'instB',
+    name: 'Tenant Light',
+    contextName: 'SUITE',
+    widgetId: 'lease-bulb',
+    title: 'Tenant Light',
+    icon: '🏠',
+    color: '#4cc36a',
+    view: [
+      { type: 'toggle', bind: 'sOut', on: '1', off: '0', caption: 'light' },
+      { type: 'value', bind: 'status', caption: 'lease status' },
+      { type: 'field', bind: 'rent', caption: 'rent' },
+    ],
+    writable: ['sOut', 'rent'],
+    localOnly: [],
+    bindProfile: { sOut: 'padi.light', status: 'padi.lease.basic', rent: 'padi.lease.basic' },
+    hasRules: true,
+    state: { sOut: '0', status: 'Offer' },
+    connections: 2,
+    peers: PEERS_A,
+    perConn: { c1: { sOut: '0' }, l1: { status: 'Offer' } },
+    attached: true,
+    pinned: false,
+    theme: 'dark',
+  }),
+  action: async (property, value, connId) => w2.__actions.push({ property, value, connId: connId ?? null }),
+  setPinned: async (p) => p,
+  adjustHeight: () => {},
+  onState: (cb) => subs2.state.push(cb),
+  onTheme: (cb) => subs2.theme.push(cb),
+  onInfo: (cb) => subs2.info.push(cb),
+};
+w2.__errors = [];
+w2.addEventListener('error', (e) => w2.__errors.push(String(e.message)));
+w2.eval(fpjs);
+await new Promise((r) => setTimeout(r, 50));
+const q2 = (sel) => [...d2.querySelectorAll(sel)];
+
+// 1 light + 1 lease connection: nothing to disambiguate -> NO strip
+assert('multi-CP 1+1: strip HIDDEN', d2.getElementById('fpStrip').hidden);
+assert('footer lists both peers', d2.getElementById('fpPeers').textContent === 'bound to West · Landlord');
+d2.querySelector('.toggle').click();
+await new Promise((r) => setTimeout(r, 10));
+assert('1+1 write is a clean broadcast (the old misaddress bug)',
+  w2.__actions.length === 1 && w2.__actions[0].connId === null && w2.__actions[0].property === 'sOut');
+
+// second LEASE connection arrives: exactly one group (lease), light stays groupless
+const PEERS_B = [
+  PEERS_A[0],
+  PEERS_A[1],
+  { connId: 'l2', system: 'Anto', node: 'Acme', profile: 'padi.lease.basic' },
+];
+for (const cb of subs2.state) cb({ id: 'instB', state: { sOut: '1', status: 'Offer' }, connections: 3, peers: PEERS_B, perConn: { c1: { sOut: '1' }, l1: { status: 'Offer' }, l2: { status: 'Approved' } } });
+assert('lease gains a group, strip appears', !d2.getElementById('fpStrip').hidden);
+assert('one group: All + 2 lease pills, no CP tag needed',
+  q2('#fpStrip .peer').length === 3 && q2('#fpStrip .gtag').length === 0);
+assert('lease disagreement shows mixed on status', q2('.value')[0].textContent === 'mixed');
+assert('light prop NOT mixed across unrelated CPs', !d2.querySelector('.toggle').classList.contains('mixed'));
+
+// select the Acme lease pill: lease reads scope, light writes stay broadcast
+q2('#fpStrip .peer')[2].click();
+assert('lease selection scopes the status read', q2('.value')[0].textContent === 'Approved');
+d2.querySelector('.toggle').click();
+await new Promise((r) => setTimeout(r, 10));
+assert('light write ignores the LEASE selection (broadcast)',
+  w2.__actions.length === 2 && w2.__actions[1].connId === null);
+const rentInput = d2.querySelector('.field input');
+rentInput.value = '100';
+rentInput.dispatchEvent(new w2.Event('blur'));
+await new Promise((r) => setTimeout(r, 10));
+assert('lease write IS scoped to the selected lease connection',
+  w2.__actions.length === 3 && w2.__actions[2].property === 'rent' && w2.__actions[2].connId === 'l2');
+
+// second LIGHT connection arrives too: two tagged groups, independent selections
+const PEERS_C = [...PEERS_B, { connId: 'c2', system: 'Anto', node: 'East', profile: 'padi.light' }];
+for (const cb of subs2.state) cb({ id: 'instB', state: { sOut: '1', status: 'Offer' }, connections: 4, peers: PEERS_C, perConn: { c1: { sOut: '1' }, c2: { sOut: '0' }, l1: { status: 'Offer' }, l2: { status: 'Approved' } } });
+assert('two multi-connection CPs: two tagged groups on one row',
+  q2('#fpStrip .peer-group').length === 2 && q2('#fpStrip .gtag').map((t) => t.textContent).join('|') === 'light|lease.basic');
+assert('light disagreement now mixed (within its own group)', d2.querySelector('.toggle').classList.contains('mixed'));
+q2('#fpStrip .peer-group')[0].querySelectorAll('.peer')[1].click(); // West in the LIGHT group
+d2.querySelector('.toggle').click();
+await new Promise((r) => setTimeout(r, 10));
+assert('light write scoped by the LIGHT group selection',
+  w2.__actions.length === 4 && w2.__actions[3].connId === 'c1');
+rentInput.value = '200';
+rentInput.dispatchEvent(new w2.Event('blur'));
+await new Promise((r) => setTimeout(r, 10));
+assert('lease selection survived independently (still l2)',
+  w2.__actions.length === 5 && w2.__actions[4].connId === 'l2');
+
+if (w2.__errors.length) failures.push('part2 uncaught errors: ' + w2.__errors);
 if (failures.length) { console.error('\n❌ FAIL —', failures.join('; ')); process.exit(1); }
-console.log('\n✅ PASS — scoped per-connection control, mixed own-props, and identity sync all work.');
+console.log('\n✅ PASS — scoped control, mixed own-props, identity sync, and per-CP pill groups all work.');
 process.exit(0);

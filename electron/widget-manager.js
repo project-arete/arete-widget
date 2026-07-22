@@ -551,8 +551,13 @@ export class WidgetManager extends EventEmitter {
     if (!r || !model.writable.includes(prop)) {
       throw new Error(`Property "${prop}" is not writable by this widget.`);
     }
-    if (!(live.peers || []).some((p) => p.connId === connId)) {
-      throw new Error('Unknown connection for this widget.');
+    const peer = (live.peers || []).find((p) => p.connId === connId);
+    if (!peer) throw new Error('Unknown connection for this widget.');
+    if (peer.profile !== r.profile) {
+      // Multi-CP guard: addressing e.g. a light write to a LEASE connection
+      // would land on a key path no peer listens to. The faceplate scopes
+      // writes per-CP since UI v37; this is the belt-and-braces backstop.
+      throw new Error(`Connection ${connId} belongs to ${peer.profile}, not ${r.profile} — refusing the misaddressed write.`);
     }
     const key =
       `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}` +

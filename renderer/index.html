@@ -15,7 +15,7 @@
         <img class="logo" src="logo.png" alt="Arete" />
         <div>
           <h1>Arete Widget</h1>
-          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v35</span></p>
+          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v38</span></p>
         </div>
       </div>
       <div class="realm-ind" id="realmInd" hidden>
@@ -87,7 +87,10 @@
           <section class="card cmp-col" id="cmpCenter">
             <div class="card-head">
               <h2>Preview</h2>
-              <span class="muted-note" id="cmpPreviewNote">rendered by the real faceplate renderer · mock state</span>
+              <span class="card-tools">
+                <span class="muted-note" id="cmpPreviewNote">rendered by the real faceplate renderer · mock state</span>
+                <button type="button" id="cmpLiveBtn" class="ghost" title="Put this draft on the realm — the canvas becomes the running widget (stable node identity, value-preserving re-attach)">Go live</button>
+              </span>
             </div>
             <div class="cmp-previewwrap"><iframe id="cmpPreview" title="Widget preview"></iframe></div>
             <div class="cmp-errors" id="cmpErrors" hidden></div>
