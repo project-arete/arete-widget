@@ -23,7 +23,10 @@
     "test:startup": "node scripts/diag-startup.js",
     "test:ping": "node scripts/test-ping.js",
     "test:library": "node scripts/test-library.js",
-    "test:propagate": "node scripts/test-propagate.js"
+    "test:propagate": "node scripts/test-propagate.js",
+    "test:compose": "node scripts/test-compose.js",
+    "test:compose-ui": "node scripts/test-compose-ui.js",
+    "test:lease": "node scripts/test-lease.js"
   },
   "dependencies": {
     "arete-sdk": "^0.1.6",

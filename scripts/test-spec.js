@@ -321,4 +321,143 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
   ok('reply rule: converges once every connection carries its answer');
 }
 
+// ---- gated rules (gate/is/else — cp:padi.lease.basic gating cp:padi.light) ----
+{
+  // Fixture mirrors the REAL cp.padi.io registry entry for padi.lease.basic.
+  const PADI_LEASE = {
+    name: 'padi.lease.basic',
+    title: 'Simple leasing profile',
+    versions: [{
+      properties: [
+        { propagate: null, name: 'tenant', description: 'Name of tenant to be displayed' },
+        { propagate: null, name: 'end', description: 'End date of lease' },
+        { propagate: null, name: 'rent', description: 'Monthly rent in USD', required: null },
+        { propagate: null, name: 'rate', description: 'Rental rate per SqFt', server: null, required: null },
+        { propagate: null, name: 'capacity', description: 'Number of people allowed', server: null },
+        { propagate: null, name: 'logo', description: 'URL to tenant logo (800x400px)' },
+        { propagate: null, name: 'status', description: 'Status of the lease', server: null, required: null },
+      ],
+    }],
+  };
+  const PR3 = { 'padi.light': PADI_LIGHT, 'padi.lease.basic': PADI_LEASE };
+
+  // the shipped lease-bulb (two capabilities, gated rule) validates
+  const raw = yaml.load(fs.readFileSync(path.join(ROOT, 'widgets', 'lease-bulb.yaml'), 'utf8'));
+  const res = validateDefinition(raw, PR3);
+  assert.ok(res.ok, `lease-bulb.yaml: ${res.errors.join('; ')}`);
+  const gated = res.model.behavior.rules[0];
+  assert.deepEqual(
+    { gate: gated.gate, is: gated.is, else: gated.else, aggregate: gated.aggregate },
+    { gate: 'status', is: 'Approved', else: '0', aggregate: 'average' },
+  );
+  ok('lease-bulb.yaml validates (multi-capability + gate composes with aggregate)');
+
+  // validator rejections
+  const capV = [{ profile: 'padi.light', role: 'consumer' }, { profile: 'padi.lease.basic', role: 'consumer' }];
+  const viewV = [{ type: 'lamp', bind: 'cState' }];
+  let bad = validateDefinition({
+    widget: 'x', title: 'X', capabilities: capV, view: viewV,
+    behavior: { rules: [{ when: 'sOut', set: 'cState', gate: 'status' }] },
+  }, PR3);
+  assert.ok(!bad.ok && bad.errors.some((er) => er.includes('requires `is:`')));
+  ok('validator refuses gate: without is:');
+
+  bad = validateDefinition({
+    widget: 'x', title: 'X', capabilities: capV, view: viewV,
+    behavior: { rules: [{ when: 'sOut', set: 'cState', gate: 'cState', is: '1' }] },
+  }, PR3);
+  assert.ok(!bad.ok && bad.errors.some((er) => er.includes('must differ from `set`')));
+  ok('validator refuses gate === set (oscillation)');
+
+  bad = validateDefinition({
+    widget: 'x', title: 'X', capabilities: capV, view: viewV,
+    behavior: { rules: [{ when: 'sOut', set: 'cState', gate: 'nope', is: '1' }] },
+  }, PR3);
+  assert.ok(!bad.ok && bad.errors.some((er) => er.includes('does not exist')));
+  ok('validator refuses a gate property no capability declares');
+
+  bad = validateDefinition({
+    widget: 'x', title: 'X', capabilities: capV, view: viewV,
+    behavior: { rules: [{ when: 'sOut', set: 'cState', else: '0' }] },
+  }, PR3);
+  assert.ok(!bad.ok && bad.errors.some((er) => er.includes('only valid together with `gate:`')));
+  ok('validator refuses is:/else: without gate:');
+
+  // ENGINE — one instance, two capabilities: a light connection (switch says
+  // ON) and a lease connection carrying the landlord's status.
+  const { model } = validateDefinition(raw, PR3);
+  const inst = { systemId: 'SYS', nodeId: 'NODE', contextId: 'CTX' };
+  const light = `cns/SYS/nodes/NODE/contexts/CTX/consumer/padi.light/`;
+  const lease = `cns/SYS/nodes/NODE/contexts/CTX/consumer/padi.lease.basic/`;
+  const keys = {
+    [light + 'properties/cState']: '0',
+    [light + 'connections/lc1/properties/sOut']: '1',
+    [lease + 'connections/ls1/properties/status']: 'Offer',
+  };
+
+  // switch ON but the lease is only at Offer -> the light STAYS dark
+  let d = deriveState(keys, inst, model);
+  assert.equal(d.state.status, 'Offer');
+  assert.equal(computeActions(model, d.state, {}, d.perConn).length, 0);
+  ok('gate closed (status=Offer): switch-on does NOT light the bulb');
+
+  // landlord approves -> the pending switch-on actualizes
+  keys[lease + 'connections/ls1/properties/status'] = 'Approved';
+  d = deriveState(keys, inst, model);
+  assert.deepEqual(computeActions(model, d.state, {}, d.perConn), [{ property: 'cState', value: '1' }]);
+  ok('gate opens (status=Approved): light converges to the controller');
+
+  // lease turns Delinquent while the light is ON -> forced back off
+  keys[light + 'properties/cState'] = '1';
+  keys[light + 'connections/lc1/properties/cState'] = '1';
+  keys[lease + 'connections/ls1/properties/status'] = 'Delinquent';
+  d = deriveState(keys, inst, model);
+  assert.deepEqual(computeActions(model, d.state, {}, d.perConn), [{ property: 'cState', value: '0' }]);
+  ok('gate closes (status=Delinquent): lit bulb converges to else "0"');
+
+  // else-value pending guard + idempotence once dark
+  const pending = { cState: '0' };
+  assert.equal(computeActions(model, d.state, pending, d.perConn).length, 0);
+  keys[light + 'properties/cState'] = '0';
+  keys[light + 'connections/lc1/properties/cState'] = '0';
+  d = deriveState(keys, inst, model);
+  assert.equal(computeActions(model, d.state, {}, d.perConn).length, 0);
+  ok('closed gate is idempotent (pending guard honored, dark stays dark)');
+
+  // no lease connection AT ALL counts as closed (undefined gate property)
+  const keysNoLease = {
+    [light + 'properties/cState']: '1',
+    [light + 'connections/lc1/properties/sOut']: '1',
+  };
+  d = deriveState(keysNoLease, inst, model);
+  assert.deepEqual(computeActions(model, d.state, {}, d.perConn), [{ property: 'cState', value: '0' }]);
+  ok('no lease connection: gate counts as closed, light forced off');
+
+  // gate + aggregate: two controllers disagree while Approved -> average
+  const keysAgg = {
+    [light + 'properties/cState']: '0',
+    [light + 'connections/lc1/properties/sOut']: '1',
+    [light + 'connections/lc2/properties/sOut']: '0',
+    [lease + 'connections/ls1/properties/status']: 'Approved',
+  };
+  d = deriveState(keysAgg, inst, model);
+  assert.deepEqual(computeActions(model, d.state, {}, d.perConn), [{ property: 'cState', value: '0.5' }]);
+  ok('gate + aggregate compose: Approved with 1-of-2 controllers on -> "0.5"');
+
+  // a gated rule WITHOUT else leaves the target alone when closed
+  const holdRes = validateDefinition({
+    widget: 'x', title: 'X', capabilities: capV, view: viewV,
+    behavior: { rules: [{ when: 'sOut', set: 'cState', gate: 'status', is: 'Approved' }] },
+  }, PR3);
+  assert.ok(holdRes.ok, holdRes.errors.join('; '));
+  const keysHold = {
+    [light + 'properties/cState']: '1',
+    [light + 'connections/lc1/properties/sOut']: '0',
+    [lease + 'connections/ls1/properties/status']: 'Terminated',
+  };
+  d = deriveState(keysHold, inst, holdRes.model);
+  assert.equal(computeActions(holdRes.model, d.state, {}, d.perConn).length, 0);
+  ok('gate without else: closed gate holds the last value (no action)');
+}
+
 console.log(`\n✅ PASS — ${n} spec/engine checks.`);

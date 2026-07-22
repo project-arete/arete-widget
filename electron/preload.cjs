@@ -39,4 +39,11 @@ contextBridge.exposeInMainWorld('arete', {
   onWidgetDefs: sub('widget:defs'),
   onWidgetInstances: sub('widget:instances'),
   onWidgetState: sub('widget:state'),
+
+  // composer (Compose tab)
+  composeCheck: (draft) => ipcRenderer.invoke('compose:check', draft),
+  composeSimulate: (payload) => ipcRenderer.invoke('compose:simulate', payload),
+  composeSaveLocal: (payload) => ipcRenderer.invoke('compose:saveLocal', payload),
+  composeReadDef: (id) => ipcRenderer.invoke('compose:readDef', id),
+  composeFaceplateHtml: () => ipcRenderer.invoke('compose:faceplateHtml'),
 });

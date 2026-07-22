@@ -13,9 +13,13 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
+import yaml from 'js-yaml';
+
 import { installSystemIdPatch } from './arete-system-id.js';
 import { AreteService } from './arete-service.js';
 import { WidgetManager } from './widget-manager.js';
+import { validateDefinition, parseProfile, orderDefinition } from '../core/widget-spec.js';
+import { computeActions } from '../core/behavior-engine.js';
 import * as settings from './settings.js';
 
 // IMPORTANT: get `fs` via createRequire, NOT `import fs from 'node:fs'` — a
@@ -535,6 +539,120 @@ app.whenReady().then(async () => {
   });
 
   wireEvents();
+
+  // ---- IPC: Composer (Compose tab — Phase 1) ----
+  // Validate a draft. Input is the draft DEFINITION OBJECT (plain data, the
+  // same shape yaml.load produces) or raw YAML text. Returns everything the
+  // Composer needs: canonical YAML, validation result, and per-capability
+  // property tables (available even while the full definition is invalid, so
+  // binding pickers can populate mid-edit).
+  ipcMain.handle('compose:check', async (_evt, draft) => {
+    let raw = draft;
+    if (typeof draft === 'string') {
+      try {
+        raw = yaml.load(draft);
+      } catch (err) {
+        return { ok: false, errors: ['YAML parse error: ' + (err.message || err)], model: null, raw: null, yaml: '', caps: [] };
+      }
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { ok: false, errors: ['Definition is not a mapping.'], model: null, raw: null, yaml: '', caps: [] };
+    }
+    const profiles = {};
+    const capsIn = Array.isArray(raw.capabilities) ? raw.capabilities : [];
+    for (const c of capsIn) {
+      const name = c && typeof c.profile === 'string' ? c.profile.trim() : '';
+      if (name && !(name in profiles)) profiles[name] = await fetchProfile(name);
+    }
+    const res = validateDefinition(raw, profiles);
+    // Per-capability prop tables for the binding pickers (independent of full validity).
+    const caps = capsIn.map((c) => {
+      const profile = c && typeof c.profile === 'string' ? c.profile.trim() : '';
+      const role = c && typeof c.role === 'string' ? c.role.trim() : '';
+      const parsed = parseProfile(profiles[profile]);
+      return {
+        profile,
+        role,
+        ok: !!parsed,
+        title: parsed ? parsed.title : '',
+        props: parsed ? parsed.props : {},
+      };
+    });
+    let text = '';
+    try {
+      text = yaml.dump(orderDefinition(raw), { lineWidth: 120, noRefs: true });
+    } catch (_) {}
+    return { ok: res.ok, errors: res.errors, model: res.model, raw, yaml: text, caps };
+  });
+
+  // Draft-preview rule simulation: run the behavior engine over MOCK state
+  // (no realm, no connections) so the preview shows rules converging. Bounded
+  // iteration — a (mis)configured rule pair can never loop forever.
+  ipcMain.handle('compose:simulate', (_evt, { model, state }) => {
+    if (!model || !model.behavior) return { state: state || {}, fired: [] };
+    const s = { ...(state || {}) };
+    const fired = [];
+    for (let i = 0; i < 8; i++) {
+      const actions = computeActions(model, s, {}, {});
+      if (!actions.length) break;
+      for (const a of actions) {
+        s[a.property] = String(a.value);
+        fired.push({ property: a.property, value: String(a.value) });
+      }
+    }
+    return { state: s, fired };
+  });
+
+  // Save the draft as a LOCAL widget definition (userData/widgets — highest
+  // precedence source). Refuses to shadow a bundled/library id: local silently
+  // overriding the library is the precedence hazard the design doc flags.
+  ipcMain.handle('compose:saveLocal', async (_evt, { yamlText, overwrite }) => {
+    let raw;
+    try {
+      raw = yaml.load(yamlText);
+    } catch (err) {
+      return { ok: false, error: 'YAML parse error: ' + (err.message || err) };
+    }
+    const id = raw && typeof raw.widget === 'string' ? raw.widget.trim() : '';
+    if (!id) return { ok: false, error: 'The definition has no `widget:` id.' };
+    const existing = manager.listDefinitions().find((d) => d.id === id);
+    if (existing && existing.source !== 'local') {
+      return { ok: false, error: `Widget id "${id}" already exists in the ${existing.source} source — a local copy would shadow it. Pick a different id.` };
+    }
+    if (existing && existing.source === 'local' && !overwrite) {
+      return { ok: false, error: `Local widget "${id}" already exists.`, exists: true };
+    }
+    const fname = id.replace(/[^a-z0-9._-]/gi, '_') + '.yaml';
+    try {
+      fs.writeFileSync(path.join(userWidgetsDir, fname), yamlText);
+    } catch (err) {
+      return { ok: false, error: 'Write failed: ' + (err.message || err) };
+    }
+    await manager.loadDefinitions(false); // rescan without a network refresh
+    const def = manager.listDefinitions().find((d) => d.id === id);
+    return { ok: !!(def && def.ok), errors: def ? def.errors : [], file: fname };
+  });
+
+  // YAML source of an existing definition — "Open in Composer".
+  ipcMain.handle('compose:readDef', (_evt, widgetId) => {
+    const def = manager.listDefinitions().find((d) => d.id === widgetId);
+    if (!def) return null;
+    try {
+      return { id: def.id, source: def.source, text: fs.readFileSync(def.file, 'utf8') };
+    } catch (_) {
+      return null;
+    }
+  });
+
+  // faceplate.html source for the preview iframe (fetch() can't read file://).
+  ipcMain.handle('compose:faceplateHtml', () => {
+    try {
+      return fs.readFileSync(path.join(ROOT, 'renderer', 'faceplate.html'), 'utf8');
+    } catch (_) {
+      return null;
+    }
+  });
+
   await manager.loadDefinitions();
   createMainWindow();
 
