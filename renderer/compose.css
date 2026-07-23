@@ -217,6 +217,18 @@ button.danger { color: #e2635a; }
 .cmp-graph-head .muted-note { margin: 0; }
 #cmpGraphToggle { font-size: 11px; padding: 2px 8px; white-space: nowrap; }
 .cmp-graph-scroll { max-height: 240px; overflow-y: auto; margin-top: 6px; }
+/* Collapsed (v53): the dock shrinks to a small corner TAB — just the
+   "connections ▴" button, no full-width bar eating real estate. */
+.cmp-graph.closed {
+  left: auto;
+  right: 14px;
+  bottom: 0;
+  padding: 4px 4px 2px;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.2);
+}
+.cmp-graph.closed .cmp-graph-head .muted-note { display: none; }
 .cmp-graph.closed .cmp-graph-scroll { display: none; }
 .cmp-graph svg { display: block; }
 .cmp-graph .gw rect { fill: var(--panel-2); stroke: var(--accent); stroke-width: 1.2; }
