@@ -949,6 +949,7 @@
   // Going live re-attaches the canvas's stable node/context via the v29
   // value-preserving path in main; editing anything drops back to draft.
   let liveMode = false;
+  let liveCtxs = [];   // contexts of the CURRENT live run — preview place-pills
   let liveLast = null; // latest live payload from main
 
   function updateLiveBtn() {
@@ -978,7 +979,12 @@
       load: async () => ({
         id: 'draft-live',
         name: cur.def.title || cur.def.widget || 'Draft',
-        contextName: 'live · ' + (cur.def.title || cur.def.widget || 'draft'),
+        contextName: 'live · ' + (liveCtxs.length
+          ? liveCtxs.map((c) => c.name).join(', ')
+          : (cur.def.title || cur.def.widget || 'draft')),
+        // Multi-context go-live: >1 flips the preview's pills to PLACE labels
+        // (peers arrive from the runner already tagged with ctxId/context).
+        contexts: liveCtxs.map((c) => ({ id: c.id, name: c.name })),
         widgetId: cur.def.widget || 'draft',
         title: model.title,
         icon: model.icon || '',
@@ -1043,20 +1049,26 @@
     const ids = ensureLiveIds(cur);
     const matches = liveMatches();
     const title = cur.def.title || cur.def.widget || 'Draft';
-    // Preselect: the draft's previous choice if still offered, else the best
-    // match (unbound partners first), else the canvas's own context.
-    let sel = '';
-    if (ids.join && matches.some((c) => c.id === ids.join.contextId)) sel = ids.join.contextId;
-    else if (matches.length) sel = matches[0].id;
+    // CHECKBOXES, same as the install dialog (the IBB-call ask): every checked
+    // context is one presence — join several, include the canvas's own, any
+    // combination. Preselect the draft's previous choice; else the best match
+    // (unbound partners first); else the canvas's own context.
+    // ids.join: {list:[{id,name}], canvas:bool} (migrated from the old single
+    // {contextId, contextName} shape).
+    let saved = ids.join;
+    if (saved && saved.contextId) saved = { list: [{ id: saved.contextId, name: saved.contextName }], canvas: false };
+    const savedIds = new Set(((saved && saved.list) || []).map((c) => c.id));
+    const canvasChecked = saved ? !!saved.canvas : !matches.length;
+    const joinDefault = (c, i) => (saved ? savedIds.has(c.id) : i === 0);
     const box = document.createElement('div');
     box.className = 'cmp-livepick';
     box.id = 'cmpLivePick';
     box.innerHTML = `
-      <p class="muted-note">Connections only form inside a shared context — where should this widget go live?</p>
-      ${matches.map((c) => `
-        <label class="checkbox"><input type="radio" name="cmpLpCtx" value="${esc(c.id)}"${sel === c.id ? ' checked' : ''} />
+      <p class="muted-note">Connections only form inside a shared context — pick every place this widget should be live in.</p>
+      ${matches.map((c, i) => `
+        <label class="checkbox"><input type="checkbox" class="cmp-lp-box" data-id="${esc(c.id)}" data-name="${esc(c.name)}"${joinDefault(c, i) ? ' checked' : ''} />
         <span>Join <strong>${esc(c.name)}</strong> <span class="muted-note">${esc(c.partnersText)}</span></span></label>`).join('')}
-      <label class="checkbox"><input type="radio" name="cmpLpCtx" value=""${sel ? '' : ' checked'} />
+      <label class="checkbox"><input type="checkbox" id="cmpLpCanvas"${canvasChecked ? ' checked' : ''} />
       <span>New context “${esc(title)}” <span class="muted-note">${matches.length
         ? "the canvas's own — nothing to connect to until a partner joins it"
         : 'no realm context has a matching partner — a partner will have to join you'}</span></span></label>
@@ -1068,25 +1080,29 @@
     wrap.parentNode.insertBefore(box, wrap);
     box.querySelector('#cmpLpCancel').addEventListener('click', closeLivePick);
     box.querySelector('#cmpLpGo').addEventListener('click', () => {
-      const picked = box.querySelector('input[name="cmpLpCtx"]:checked');
-      const id = picked ? picked.value : '';
-      const m = matches.find((c) => c.id === id);
-      ids.join = m ? { contextId: m.id, contextName: m.name } : null;
+      const joins = [...box.querySelectorAll('.cmp-lp-box')]
+        .filter((b) => b.checked)
+        .map((b) => ({ id: b.dataset.id, name: b.dataset.name }));
+      const canvas = box.querySelector('#cmpLpCanvas').checked;
+      const ctxs = [...joins, ...(canvas ? [{ id: ids.contextId, name: title }] : [])];
+      if (!ctxs.length) return; // the widget must be live SOMEWHERE
+      ids.join = { list: joins, canvas };
       closeLivePick();
-      doGoLive(m ? { contextId: m.id, contextName: m.name }
-                 : { contextId: ids.contextId, contextName: title });
+      doGoLive(ctxs);
     });
   }
 
-  async function doGoLive(ctx) {
+  async function doGoLive(ctxs) {
     const ids = ensureLiveIds(cur);
+    liveCtxs = ctxs;
     ui.liveBtn.disabled = true;
     const res = await window.arete.composeGoLive({
       yamlText: check.yaml,
       name: cur.def.title || cur.def.widget || 'Draft',
       nodeId: ids.nodeId,
-      contextId: ctx.contextId,
-      contextName: ctx.contextName,
+      contextId: ctxs[0].id,          // legacy single-context main fallback
+      contextName: ctxs[0].name,
+      contexts: ctxs,
       applyInit: !ids.initDone,
     });
     ui.liveBtn.disabled = false;
@@ -1101,7 +1117,7 @@
     liveLast = null;
     updateLiveBtn();
     await buildPreview();
-    ui.status.textContent = `live in “${ctx.contextName}” — awaiting broker`;
+    ui.status.textContent = `live in ${ctxs.map((c) => `“${c.name}”`).join(', ')} — awaiting broker`;
     ui.status.className = 'cmp-status ok';
   }
 

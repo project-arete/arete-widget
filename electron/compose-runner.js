@@ -31,26 +31,33 @@ export class ComposeRunner extends EventEmitter {
   }
 
   /**
-   * Put the draft on the realm. @returns {{systemId,nodeId,contextId}}
-   * @param {object} spec {model, name, nodeId, contextId, contextName, applyInit}
+   * Put the draft on the realm. @returns {{systemId,nodeId,contextId,contexts}}
+   * @param {object} spec {model, name, nodeId, contexts: [{id,name}], applyInit}
+   *   (legacy single contextId/contextName still accepted — one-entry list)
    */
-  async goLive({ model, name, nodeId, contextId, contextName, applyInit }) {
+  async goLive({ model, name, nodeId, contextId, contextName, contexts, applyInit }) {
     if (!model || !Array.isArray(model.capabilities) || !model.capabilities.length) {
       throw new Error('The draft has no valid model to go live with.');
     }
-    if (!nodeId || !contextId) throw new Error('The canvas has no stable identity (nodeId/contextId).');
+    const ctxs = (Array.isArray(contexts) && contexts.length
+      ? contexts
+      : [{ id: contextId, name: contextName }])
+      .map((c) => ({ id: String(c.id || '').trim(), name: String(c.name || '') }))
+      .filter((c) => c.id);
+    if (!nodeId || !ctxs.length) throw new Error('The canvas has no stable identity (nodeId/contexts).');
     if (this.#live) this.stop();
-    const { systemId, caps } = await this.#service.instantiate({
+    const { systemId, caps, capsByCtx } = await this.#service.instantiate({
       nodeId,
       nodeName: name,
-      contextId,
-      contextName,
+      contexts: ctxs,
       capabilities: model.capabilities.map((c) => ({ profile: c.profile, role: c.role })),
     });
     this.#live = {
-      inst: { systemId, nodeId, contextId },
+      inst: { systemId, nodeId, contextId: ctxs[0].id, contexts: ctxs.map((c) => c.id) },
+      ctxs,
       model,
       caps,
+      capsByCtx,
       name,
       pending: {},
       state: {},
@@ -64,7 +71,7 @@ export class ComposeRunner extends EventEmitter {
       }
     }
     this.#process(this.#lastKeys);
-    return { systemId, nodeId, contextId };
+    return { systemId, nodeId, contextId: ctxs[0].id, contexts: ctxs };
   }
 
   /** Drop live handles (realm node persists — same ids reattach next time). */
@@ -81,22 +88,26 @@ export class ComposeRunner extends EventEmitter {
   }
 
   #peersFor(keys) {
-    const { inst, model } = this.#live;
+    const { inst, model, ctxs } = this.#live;
     const peers = [];
-    for (const cap of model.capabilities) {
-      const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${inst.contextId}/${cap.role}/${cap.profile}/connections/`;
-      const peerSide = cap.role === 'provider' ? 'consumer' : 'provider';
-      for (const k in keys) {
-        if (!k.startsWith(prefix)) continue;
-        const m = k.slice(prefix.length).match(/^([^/]+)\/(consumer|provider)$/);
-        if (!m || m[2] !== peerSide) continue;
-        const p = String(keys[k]).split('/');
-        peers.push({
-          connId: m[1],
-          profile: cap.profile,
-          system: keys[`cns/${p[1]}/name`] || p[1],
-          node: keys[`cns/${p[1]}/nodes/${p[3]}/name`] || p[3],
-        });
+    for (const ctx of ctxs) {
+      for (const cap of model.capabilities) {
+        const prefix = `cns/${inst.systemId}/nodes/${inst.nodeId}/contexts/${ctx.id}/${cap.role}/${cap.profile}/connections/`;
+        const peerSide = cap.role === 'provider' ? 'consumer' : 'provider';
+        for (const k in keys) {
+          if (!k.startsWith(prefix)) continue;
+          const m = k.slice(prefix.length).match(/^([^/]+)\/(consumer|provider)$/);
+          if (!m || m[2] !== peerSide) continue;
+          const p = String(keys[k]).split('/');
+          peers.push({
+            connId: m[1],
+            profile: cap.profile,
+            ctxId: ctx.id,
+            context: ctx.name,
+            system: keys[`cns/${p[1]}/name`] || p[1],
+            node: keys[`cns/${p[1]}/nodes/${p[3]}/name`] || p[3],
+          });
+        }
       }
     }
     return peers;
@@ -153,16 +164,24 @@ export class ComposeRunner extends EventEmitter {
     this.#push(); // optimistic — the echo confirms
   }
 
+  // Unscoped writes FAN OUT to every attached context (multi-context go-live
+  // mirrors widget-manager: one value, N presences).
   async #put(prop, value) {
     const live = this.#live;
     const r = live.model.resolve[prop];
     if (!r || !live.model.writable.includes(prop)) {
       throw new Error(`Property "${prop}" is not writable by this draft.`);
     }
-    const cap = live.caps[`${r.role}|${r.profile}`];
-    if (!cap) throw new Error(`No live ${r.role} handle for ${r.profile}.`);
+    const byCtx = live.capsByCtx || { [live.inst.contextId]: live.caps };
     live.pending[prop] = String(value);
-    await cap.put(prop, String(value));
+    let wrote = 0;
+    for (const ctxId in byCtx) {
+      const cap = byCtx[ctxId][`${r.role}|${r.profile}`];
+      if (!cap) continue;
+      await cap.put(prop, String(value));
+      wrote++;
+    }
+    if (!wrote) throw new Error(`No live ${r.role} handle for ${r.profile}.`);
   }
 
   async #putConn(prop, value, connId) {
@@ -176,8 +195,9 @@ export class ComposeRunner extends EventEmitter {
     if (peer.profile !== r.profile) {
       throw new Error(`Connection ${connId} belongs to ${peer.profile}, not ${r.profile} — refusing the misaddressed write.`);
     }
+    // Route to the CONTEXT this connection lives in (multi-context go-live).
     const key =
-      `cns/${live.inst.systemId}/nodes/${live.inst.nodeId}/contexts/${live.inst.contextId}` +
+      `cns/${live.inst.systemId}/nodes/${live.inst.nodeId}/contexts/${peer.ctxId || live.inst.contextId}` +
       `/${r.role}/${r.profile}/connections/${connId}/properties/${prop}`;
     await this.#service.putKey(key, String(value));
     live.perConn = {

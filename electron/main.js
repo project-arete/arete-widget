@@ -741,7 +741,7 @@ app.whenReady().then(async () => {
   });
 
   // ---- Composer go-live (Phase 3): run the draft on the realm ----
-  ipcMain.handle('compose:goLive', async (_evt, { yamlText, name, nodeId, contextId, contextName, applyInit }) => {
+  ipcMain.handle('compose:goLive', async (_evt, { yamlText, name, nodeId, contextId, contextName, contexts, applyInit }) => {
     let raw;
     try {
       raw = yaml.load(yamlText);
@@ -762,6 +762,7 @@ app.whenReady().then(async () => {
         nodeId,
         contextId,
         contextName: (contextName || '').trim() || (name || res.model.title || 'Draft'),
+        contexts, // multi-context go-live (UI v49); single contextId kept for old callers
         applyInit: !!applyInit,
       });
       return { ok: true, ...ids };

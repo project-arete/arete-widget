@@ -311,33 +311,40 @@ const liveBtn = $('cmpLiveBtn');
 check('Go live button present', !!liveBtn && !liveBtn.hidden);
 await sleep(600); // let validation settle
 if ($('cmpStatus').classList.contains('ok')) {
-  // UI v41: Go live first asks WHERE — join a matching context or the canvas's own.
+  // UI v49: Go live asks WHERE with CHECKBOXES (same as the install dialog) —
+  // join several matching contexts and/or the canvas's own, any combination.
   liveBtn.click();
   await sleep(200);
   const pick1 = $('cmpLivePick');
   check('go-live opens the context chooser', !!pick1 && window.__goLive.length === 0);
-  const joinRadio = pick1.querySelector('input[value="ctxJOIN"]');
-  check('matching context offered and preselected (unbound partner first)', !!joinRadio && joinRadio.checked);
-  check('canvas-own context offered as the alternative', !!pick1.querySelector('input[name="cmpLpCtx"][value=""]'));
+  const joinBox = pick1.querySelector('.cmp-lp-box[data-id="ctxJOIN"]');
+  check('matching context offered as a checkbox, preselected', !!joinBox && joinBox.checked);
+  check('canvas-own context offered as a checkbox, unchecked (a match exists)',
+    !!pick1.querySelector('#cmpLpCanvas') && !pick1.querySelector('#cmpLpCanvas').checked);
+  pick1.querySelector('#cmpLpCanvas').checked = true; // BOTH: join AND canvas
   $('cmpLpGo').click();
   await sleep(300);
-  check('joining sends the JOINED contextId with the canvas nodeId',
-    window.__goLive.length === 1 && window.__goLive[0].contextId === 'ctxJOIN' &&
-    window.__goLive[0].contextName === 'Landlord hall' && !!window.__goLive[0].nodeId);
-  const ids1 = { n: window.__goLive[0].nodeId };
+  check('go-live carries BOTH contexts (join + canvas) with the canvas nodeId',
+    window.__goLive.length === 1 && window.__goLive[0].contexts?.length === 2 &&
+    window.__goLive[0].contexts[0].id === 'ctxJOIN' && window.__goLive[0].contexts[0].name === 'Landlord hall' &&
+    window.__goLive[0].contexts[1].id && window.__goLive[0].contexts[1].id !== 'ctxJOIN' &&
+    !!window.__goLive[0].nodeId);
+  check('legacy single-context fields mirror contexts[0]', window.__goLive[0].contextId === 'ctxJOIN');
+  const ids1 = { n: window.__goLive[0].nodeId, canvasCtx: window.__goLive[0].contexts[1].id };
   liveBtn.click(); // back to draft
   await sleep(200);
   check('back-to-draft stops the live run', (window.__liveStops || 0) >= 1);
-  liveBtn.click(); // live again — chooser remembers the join
+  liveBtn.click(); // live again — chooser remembers the combination
   await sleep(200);
   const pick2 = $('cmpLivePick');
-  check('chooser reopens with the previous join preselected', !!pick2 && pick2.querySelector('input[value="ctxJOIN"]').checked);
-  pick2.querySelector('input[name="cmpLpCtx"][value=""]').checked = true; // this time: canvas's own context
+  check('chooser reopens with the previous combination preselected',
+    !!pick2 && pick2.querySelector('.cmp-lp-box[data-id="ctxJOIN"]').checked && pick2.querySelector('#cmpLpCanvas').checked);
+  pick2.querySelector('.cmp-lp-box[data-id="ctxJOIN"]').checked = false; // this time: canvas only
   $('cmpLpGo').click();
   await sleep(300);
-  check('canvas-context go-live keeps the SAME canvas identity (no re-mint)',
+  check('canvas-only go-live keeps the SAME canvas identity (no re-mint)',
     window.__goLive.length === 2 && window.__goLive[1].nodeId === ids1.n &&
-    window.__goLive[1].contextId && window.__goLive[1].contextId !== 'ctxJOIN');
+    window.__goLive[1].contexts?.length === 1 && window.__goLive[1].contexts[0].id === ids1.canvasCtx);
   check('second go-live never repeats init', window.__goLive[0].applyInit === true && window.__goLive[1].applyInit === false);
   const stopsBefore = window.__liveStops || 0;
   const t = $('cmpFtitle');
