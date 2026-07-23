@@ -700,8 +700,14 @@
     return Object.keys(m).length ? m : undefined;
   }
 
-  function renderRules() {
-    if (ui.rules.contains(document.activeElement)) return; // keep focus (re-render rule)
+  // force=true for USER-ACTION re-renders (add/delete/select inside the
+  // panel): in real Chromium the clicked button HOLDS focus, so the typing
+  // guard below would swallow the re-render and the panel looks dead — the
+  // click mutates the draft but nothing appears (the IBB-call bug). Only the
+  // debounced refresh() may honor the guard; it exists to protect TYPING in
+  // map/is/else inputs, never to block deliberate clicks.
+  function renderRules(force = false) {
+    if (!force && ui.rules.contains(document.activeElement)) return; // keep focus (re-render rule)
     const bhv = cur.def.behavior && typeof cur.def.behavior === 'object' && !Array.isArray(cur.def.behavior)
       ? cur.def.behavior : (cur.def.behavior = {});
     const rules = Array.isArray(bhv.rules) ? bhv.rules : [];
@@ -730,9 +736,9 @@
       row.innerHTML = `<select>${opts(writable, prop)}</select><input type="text" value="${esc(init[prop])}" placeholder="value" /><button type="button" class="ghost danger">✕</button>`;
       const [sel] = row.getElementsByTagName('select');
       const [inp] = row.getElementsByTagName('input');
-      sel.addEventListener('change', () => { const v = init[prop]; delete init[prop]; init[sel.value] = v; bhv.init = init; touched(); renderRules(); });
+      sel.addEventListener('change', () => { const v = init[prop]; delete init[prop]; init[sel.value] = v; bhv.init = init; touched(); renderRules(true); });
       inp.addEventListener('input', () => { init[prop] = inp.value; bhv.init = init; touched(); });
-      row.querySelector('button').addEventListener('click', () => { delete init[prop]; if (!Object.keys(init).length) delete bhv.init; touched(); renderRules(); });
+      row.querySelector('button').addEventListener('click', () => { delete init[prop]; if (!Object.keys(init).length) delete bhv.init; touched(); renderRules(true); });
       initBox.appendChild(row);
     }
     const addInit = document.createElement('button');
@@ -746,7 +752,7 @@
       init[free] = '0';
       bhv.init = init;
       touched();
-      renderRules();
+      renderRules(true);
     });
     initBox.appendChild(addInit);
     ui.rules.appendChild(initBox);
@@ -786,14 +792,14 @@
           else r[f] = el.value;
           cleanup(r);
           touched();
-          if (el.tagName === 'SELECT' || el.type === 'checkbox') renderRules();
+          if (el.tagName === 'SELECT' || el.type === 'checkbox') renderRules(true);
         });
       });
       card.querySelector('.cmp-rule-del').addEventListener('click', () => {
         rules.splice(i, 1);
         if (!rules.length) delete bhv.rules;
         touched();
-        renderRules();
+        renderRules(true);
       });
       ui.rules.appendChild(card);
     });
@@ -812,7 +818,7 @@
       rules.push({ when, set });
       cur.def.behavior = bhv;
       touched();
-      renderRules();
+      renderRules(true);
     });
     ui.rules.appendChild(add);
   }

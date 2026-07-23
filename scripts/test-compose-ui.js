@@ -272,9 +272,19 @@ document.querySelector('#cmpRight details:nth-of-type(4)').open = true;
 const ruleAdd = $('cmpRuleAdd');
 check('rule builder offers + Add rule', !!ruleAdd && !ruleAdd.disabled);
 const rulesBefore = (window.eval('(' + JSON.stringify(null) + ')'), $('cmpRules').querySelectorAll('.cmp-rule-edit').length);
+// Real Chromium FOCUSES a clicked button — the IBB-call bug: the focus guard
+// then swallowed the re-render and the panel looked dead. Reproduce that.
+ruleAdd.focus();
 ruleAdd.click();
 await sleep(600);
-check('a rule card appears', $('cmpRules').querySelectorAll('.cmp-rule-edit').length === rulesBefore + 1);
+check('a rule card appears EVEN when the click focused the button', $('cmpRules').querySelectorAll('.cmp-rule-edit').length === rulesBefore + 1);
+const initAdd = [...$('cmpRules').querySelectorAll('button')].find((b) => b.textContent === '+ init value');
+initAdd.focus();
+initAdd.click();
+await sleep(600);
+check('+ init value works under click-focus too', !!$('cmpRules').querySelector('.cmp-initrow'));
+$('cmpRules').querySelector('.cmp-initrow button.danger').click();
+await sleep(400);
 const card = [...$('cmpRules').querySelectorAll('.cmp-rule-edit')].pop();
 const aggSel = card.querySelector('[data-f="aggregate"]');
 aggSel.value = 'average';
