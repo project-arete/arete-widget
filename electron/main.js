@@ -208,14 +208,24 @@ function writeFpBounds(map) {
   }
 }
 
+// ---- global widget zoom (UI v46) ------------------------------------------
+// One factor for EVERY faceplate window, controlled from the main header and
+// persisted in settings. Content scales via webContents zoom; the windows
+// resize proportionally so the device look holds at any size.
+const clampZoom = (z) => Math.min(2, Math.max(0.6, Math.round((Number(z) || 1) * 20) / 20));
+let widgetZoom = clampZoom(settings.readSettings().widgetZoom || 1);
+
 function placeFaceplate(instanceId, width, height) {
   const saved = readFpBounds()[instanceId];
   if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
     // Clamp into the closest display's work area, so a monitor that has since
     // been unplugged can't strand the window off-screen.
+    // Saved bounds carry the zoom they were saved AT — rescale to the current
+    // zoom so a widget re-opened after a zoom change lands at the right size.
+    const zScale = widgetZoom / clampZoom(saved.zoom || 1);
     const wa = screen.getDisplayMatching(saved).workArea;
-    const w = Math.min(saved.width || width, wa.width);
-    const h = Math.min(saved.height || height, wa.height);
+    const w = Math.min(Math.round((saved.width || width) * zScale), wa.width);
+    const h = Math.min(Math.round((saved.height || height) * zScale), wa.height);
     return {
       x: Math.min(Math.max(saved.x, wa.x), wa.x + wa.width - w),
       y: Math.min(Math.max(saved.y, wa.y), wa.y + wa.height - h),
@@ -254,16 +264,16 @@ function openFaceplate(instanceId) {
   const split = !!(model && model.view.some((v) => v.type === 'split'));
   const items = model ? model.view.length : 4;
   const perCol = split ? Math.ceil(items / 2) : items;
-  const defaultWidth = split ? 560 : 300;
+  const defaultWidth = Math.round((split ? 560 : 300) * widgetZoom);
   // If the widget opens already multi-connected, budget for the peer strip.
   const stripH = (inst.peers || []).length >= 2 ? 36 : 0;
-  const defaultHeight = Math.max(300, Math.min(760, 170 + stripH + perCol * 58));
+  const defaultHeight = Math.round(Math.max(300, Math.min(760, 170 + stripH + perCol * 58)) * widgetZoom);
   const bounds = placeFaceplate(instanceId, defaultWidth, defaultHeight);
   const saved = readFpBounds()[instanceId] || {};
   const win = new BrowserWindow({
     ...bounds,
-    minWidth: 220,
-    minHeight: 260,
+    minWidth: Math.round(220 * widgetZoom),
+    minHeight: Math.round(260 * widgetZoom),
     frame: false, // device look — the faceplate header is the title bar
     title: inst.name,
     alwaysOnTop: !!saved.pinned,
@@ -276,13 +286,15 @@ function openFaceplate(instanceId) {
     },
   });
   win.loadFile(path.join(ROOT, 'renderer', 'faceplate.html'));
+  win.webContents.on('did-finish-load', () => win.webContents.setZoomFactor(widgetZoom));
 
-  // Remember where the user puts it (debounced; final save on close).
+  // Remember where the user puts it (debounced; final save on close) —
+  // stamped with the zoom the bounds were measured at.
   let saveTimer = null;
   const saveBounds = () => {
     if (win.isDestroyed()) return;
     const map = readFpBounds();
-    map[instanceId] = win.getBounds();
+    map[instanceId] = { ...(map[instanceId] || {}), ...win.getBounds(), zoom: widgetZoom };
     writeFpBounds(map);
   };
   const scheduleSave = () => {
@@ -506,7 +518,33 @@ app.whenReady().then(async () => {
     const fp = faceplates.get(id);
     if (!fp || fp.isDestroyed() || !Number.isFinite(delta)) return;
     const b = fp.getBounds();
-    fp.setBounds({ ...b, height: Math.max(260, b.height + Math.round(delta)) });
+    // The renderer measures in CSS px; the window is sized in DIPs — a zoomed
+    // faceplate needs the delta scaled by the zoom factor.
+    fp.setBounds({ ...b, height: Math.max(Math.round(260 * widgetZoom), b.height + Math.round(delta * widgetZoom)) });
+  });
+
+  // Global widget zoom: null reads, a number applies + persists. Every OPEN
+  // faceplate rescales in real time (content zoom + proportional resize).
+  ipcMain.handle('widget:zoom', (_evt, z) => {
+    if (z != null) {
+      const prev = widgetZoom;
+      widgetZoom = clampZoom(z);
+      settings.writeSettings({ widgetZoom });
+      if (widgetZoom !== prev) {
+        for (const win of faceplates.values()) {
+          if (win.isDestroyed()) continue;
+          win.webContents.setZoomFactor(widgetZoom);
+          win.setMinimumSize(Math.round(220 * widgetZoom), Math.round(260 * widgetZoom));
+          const b = win.getBounds();
+          win.setBounds({
+            ...b,
+            width: Math.round(b.width * widgetZoom / prev),
+            height: Math.round(b.height * widgetZoom / prev),
+          });
+        }
+      }
+    }
+    return widgetZoom;
   });
   // Pin a faceplate above other windows; the choice persists per instance.
   ipcMain.handle('widget:fp-pin', (_evt, { id, pinned }) => {

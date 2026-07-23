@@ -70,6 +70,16 @@ img.logo { width: 32px; height: 32px; border-radius: 8px; display: block; }
 
 .state-right { display: flex; align-items: center; gap: 10px; }
 
+/* Global widget zoom (UI v46) — sits just left of the connection state. */
+.zoomctl { display: flex; align-items: center; gap: 2px; margin-right: 14px; }
+.zoomctl button {
+  background: none; border: 1px solid var(--border, #2a323d); color: var(--muted, #9aa6b4);
+  border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1;
+  padding: 4px 7px; min-width: 26px;
+}
+.zoomctl button:hover { color: var(--text, #e6eaf0); border-color: var(--muted, #9aa6b4); }
+#zoomPct { font-size: 11px; min-width: 44px; border: none; }
+
 /* status pill goes green/red with state */
 .state-pill.ok  { color: var(--green); border-color: rgba(62,207,142,.45); background: rgba(62,207,142,.08); }
 .state-pill.bad { color: var(--red);   border-color: rgba(245,108,108,.45); background: rgba(245,108,108,.08); }

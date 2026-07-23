@@ -49,6 +49,10 @@ window.arete = {
   getStatus: async () => ({ state: 'connected', isOpen: true, version: '1', stats: {}, identity: { system: 'S9' }, lastError: null }),
   setAutoConnect: async () => ({}),
   saveSettings: async () => ({}),
+  widgetZoom: async (z) => {
+    if (z != null) window.__zoom = Math.min(2, Math.max(0.6, Math.round(z * 20) / 20));
+    return (window.__zoom = window.__zoom ?? 1);
+  },
   libraryInfo: async () => ({ url: '', updatedAt: null, count: 0 }),
   openExternal: async () => {},
   getKeys: async () => KEYS,
@@ -296,6 +300,19 @@ const chg = $('#changeSystemName');
 assert('change link present', !!chg);
 chg.click();
 assert('change link opens Config', !$('#panel-config') || document.querySelector('#tab-config').classList.contains('active'));
+
+// 15) global widget zoom (UI v46): header control, live steps, % resets
+assert('zoom control visible in the header', !$('#zoomCtl').hidden);
+assert('zoom starts at the persisted factor', $('#zoomPct').textContent === '100%');
+$('#zoomIn').click();
+await new Promise((r) => setTimeout(r, 10));
+assert('+ steps the zoom up (and pushes it to main)', $('#zoomPct').textContent === '110%' && window.__zoom === 1.1);
+$('#zoomOut').click(); $('#zoomOut').click();
+await new Promise((r) => setTimeout(r, 10));
+assert('− steps down past 100', $('#zoomPct').textContent === '90%' && window.__zoom === 0.9);
+$('#zoomPct').click();
+await new Promise((r) => setTimeout(r, 10));
+assert('% resets to 100', $('#zoomPct').textContent === '100%' && window.__zoom === 1);
 
 if (window.__errors.length) failures.push('uncaught errors: ' + window.__errors);
 if (failures.length) { console.error('\n❌ FAIL —', failures.join('; ')); process.exit(1); }

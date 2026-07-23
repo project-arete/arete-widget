@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('arete', {
   widgetRemove: (id) => ipcRenderer.invoke('widget:remove', id),
   widgetRemoveAll: () => ipcRenderer.invoke('widget:removeAll'),
   widgetOpen: (id) => ipcRenderer.invoke('widget:open', id),
+  widgetZoom: (z) => ipcRenderer.invoke('widget:zoom', z ?? null),
   onWidgetDefs: sub('widget:defs'),
   onWidgetInstances: sub('widget:instances'),
   onWidgetState: sub('widget:state'),

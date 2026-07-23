@@ -738,6 +738,28 @@ async function init() {
   els.libraryUrl.placeholder = d.libraryUrlDefault;
   updateLibraryNote(d.userWidgetsDir);
 
+  // ---- global widget zoom (UI v46): one factor for every open faceplate,
+  // applied in real time by main; − / % / + with % as reset-to-100.
+  const zoomCtl = $('zoomCtl');
+  if (zoomCtl && window.arete.widgetZoom) {
+    let widgetZoom = 1;
+    const renderZoom = () => { $('zoomPct').textContent = Math.round(widgetZoom * 100) + '%'; };
+    // Optimistic local update so RAPID clicks accumulate (an awaited
+    // read-modify-write would make every click start from the stale value);
+    // main's clamped answer then settles the truth.
+    const setZoom = (z) => {
+      widgetZoom = Math.min(2, Math.max(0.6, Math.round(z * 20) / 20));
+      renderZoom();
+      window.arete.widgetZoom(widgetZoom).then((applied) => { widgetZoom = applied; renderZoom(); }).catch(() => {});
+    };
+    zoomCtl.hidden = false;
+    $('zoomOut').addEventListener('click', () => setZoom(widgetZoom - 0.1));
+    $('zoomIn').addEventListener('click', () => setZoom(widgetZoom + 0.1));
+    $('zoomPct').addEventListener('click', () => setZoom(1));
+    widgetZoom = await window.arete.widgetZoom(null); // the persisted factor
+    renderZoom();
+  }
+
   window.arete.onLog(logLine);
   window.arete.onStatus(renderStatus);
   window.arete.onKeys((k) => { keys = k || {}; refreshCtxOptions(); });
