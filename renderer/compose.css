@@ -202,8 +202,22 @@ button.danger { color: #e2635a; }
 .cmp-pk-roledesc { opacity: 0.75; font-weight: 400; }
 .cmp-check { flex-direction: row !important; align-items: center; gap: 6px; font-size: 12px; }
 .cmp-check span { opacity: 0.85; }
-/* Connection graph under the Preview (UI v50) — the draft's wire sheet. */
-.cmp-graph { margin-top: 10px; }
+/* Connection graph (UI v50–v52) — the draft's wire sheet, DOCKED to the
+   window bottom: content scrolls behind it; the head row collapses it. */
+.cmp-graph {
+  position: fixed;
+  left: 10px; right: 10px; bottom: 8px;
+  z-index: 30;
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 -8px 22px rgba(0, 0, 0, 0.3);
+}
+.cmp-graph-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.cmp-graph-head .muted-note { margin: 0; }
+#cmpGraphToggle { font-size: 11px; padding: 2px 8px; white-space: nowrap; }
+.cmp-graph-scroll { max-height: 240px; overflow-y: auto; margin-top: 6px; }
+.cmp-graph.closed .cmp-graph-scroll { display: none; }
 .cmp-graph svg { display: block; }
 .cmp-graph .gw rect { fill: var(--panel-2); stroke: var(--accent); stroke-width: 1.2; }
 .cmp-graph .gc rect { fill: var(--panel-2); stroke: var(--border); }

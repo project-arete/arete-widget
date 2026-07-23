@@ -15,7 +15,7 @@
         <img class="logo" src="logo.png" alt="Arete" />
         <div>
           <h1>Arete Widget</h1>
-          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v51</span></p>
+          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v52</span></p>
         </div>
       </div>
       <div class="realm-ind" id="realmInd" hidden>
@@ -128,11 +128,15 @@
           </section>
         </div>
 
-        <!-- full-width wire sheet: consumers flow in from the LEFT, the widget
-             sits in the middle, providers serve out to the RIGHT -->
+        <!-- full-width wire sheet DOCKED to the window bottom: consumers flow
+             in from the LEFT, the widget sits in the middle, providers serve
+             out to the RIGHT. Content scrolls behind; collapsible. -->
         <section class="card cmp-graph" id="cmpGraphBox">
-          <p class="muted-note" id="cmpGraphNote">connections — how this widget wires into the realm</p>
-          <svg id="cmpGraph" width="100%" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="cmp-graph-head">
+            <p class="muted-note" id="cmpGraphNote">connections — how this widget wires into the realm</p>
+            <button type="button" class="ghost" id="cmpGraphToggle" title="Show / hide the wiring graph">hide ▾</button>
+          </div>
+          <div class="cmp-graph-scroll"><svg id="cmpGraph" width="100%" xmlns="http://www.w3.org/2000/svg"></svg></div>
         </section>
       </div>
 

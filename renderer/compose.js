@@ -1160,6 +1160,33 @@
   const gEsc = esc;
   const oppRole = (r) => (r === 'provider' ? 'consumer' : 'provider');
 
+  // Docked at the window bottom (v52): collapsible, choice persisted, and the
+  // panel gets bottom padding matching the dock so content can always scroll
+  // OUT from behind it.
+  const LS_GRAPHDOCK = 'composeGraphDock.v1';
+  let graphOpen = localStorage.getItem(LS_GRAPHDOCK) !== 'closed';
+  function syncGraphDock() {
+    const box = $('cmpGraphBox');
+    const toggle = $('cmpGraphToggle');
+    if (!box || !toggle) return;
+    box.classList.toggle('closed', !graphOpen);
+    toggle.textContent = graphOpen ? 'hide ▾' : 'connections ▴';
+    const panel = document.getElementById('panel-compose');
+    if (panel) panel.style.paddingBottom = (box.offsetHeight + 16) + 'px';
+  }
+  if ($('cmpGraphToggle')) {
+    $('cmpGraphToggle').addEventListener('click', () => {
+      graphOpen = !graphOpen;
+      try { localStorage.setItem(LS_GRAPHDOCK, graphOpen ? 'open' : 'closed'); } catch (_) {}
+      syncGraphDock();
+    });
+    // Re-reserve space whenever the dock's size changes (graph rows grow, the
+    // Compose tab becomes visible again, collapse/expand).
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => syncGraphDock()).observe($('cmpGraphBox'));
+    }
+  }
+
   function graphData() {
     const caps = ((check && check.model && check.model.capabilities) ||
       (Array.isArray(cur.def.capabilities) ? cur.def.capabilities : []))
@@ -1194,6 +1221,7 @@
       svg.setAttribute('height', '0');
       svg.innerHTML = '';
       if (note) note.textContent = 'connections — add a capability and the wiring graph appears here';
+      syncGraphDock();
       return;
     }
     if (note) {
@@ -1279,6 +1307,7 @@
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('height', String(H));
     svg.innerHTML = parts.join('');
+    syncGraphDock();
   }
 
   // Live traffic → flash the edge of the context the changed connection is in.

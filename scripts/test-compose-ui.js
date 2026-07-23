@@ -186,6 +186,13 @@ check('card shows role-resolved writable / read only (no propagate flag)',
   check('consumer capability sits LEFT of the centered widget',
     Number(capRect.getAttribute('x')) + 170 <= Number(widgetRect.getAttribute('x')));
   check('candidate context sits at the far left', Number(g.querySelector('.gx.cand rect').getAttribute('x')) < Number(capRect.getAttribute('x')));
+  // v52: the sheet is a bottom DOCK — collapsible, choice persisted.
+  const box = $('cmpGraphBox');
+  $('cmpGraphToggle').click();
+  check('toggle collapses the dock (graph hidden, head stays)', box.classList.contains('closed') && $('cmpGraphToggle').textContent.includes('connections'));
+  check('collapse persisted', window.localStorage.getItem('composeGraphDock.v1') === 'closed');
+  $('cmpGraphToggle').click();
+  check('toggle reopens the dock', !box.classList.contains('closed'));
 }
 
 // drop a lamp from the palette — should auto-bind to the first readable prop
