@@ -111,11 +111,13 @@ function renderStrip() {
     b.textContent = label;
     // INSTANT hover card (no native title — its OS delay hides exactly the
     // information you hover for: which context and node this pill IS).
+    // Hide is GRACED so the pointer can travel onto the card itself — the
+    // card is interactive (peer links, selectable text).
     if (tip) {
       b.addEventListener('mouseenter', () => showTip(b, tip()));
-      b.addEventListener('mouseleave', hideTip);
+      b.addEventListener('mouseleave', scheduleHideTip);
       b.addEventListener('focus', () => showTip(b, tip()));
-      b.addEventListener('blur', hideTip);
+      b.addEventListener('blur', scheduleHideTip);
     }
     b.addEventListener('click', () => {
       selByProfile[profile] = id;
@@ -153,17 +155,30 @@ function renderStrip() {
 // so the values are always the latest push.
 const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let tipEl = null;
+let tipHideTimer = null;
 function ensureTip() {
   if (!tipEl) {
     tipEl = document.createElement('div');
     tipEl.className = 'fp-tip';
     tipEl.hidden = true;
+    // Entering the card cancels the pending hide — the card is a real
+    // hover target, not a label.
+    tipEl.addEventListener('mouseenter', () => clearTimeout(tipHideTimer));
+    tipEl.addEventListener('mouseleave', scheduleHideTip);
+    tipEl.addEventListener('click', (e) => {
+      const link = e.target.closest('[data-open-widget]');
+      if (link && window.faceplate.openWidget) {
+        window.faceplate.openWidget(link.dataset.openWidget);
+        hideTip();
+      }
+    });
     document.body.appendChild(tipEl);
   }
   return tipEl;
 }
 function showTip(anchor, html) {
   const tip = ensureTip();
+  clearTimeout(tipHideTimer);
   tip.innerHTML = html;
   tip.hidden = false;
   // Measure, then clamp inside the (small) faceplate window; below the pill
@@ -178,7 +193,13 @@ function showTip(anchor, html) {
   tip.style.top = y + 'px';
 }
 function hideTip() {
+  clearTimeout(tipHideTimer);
   if (tipEl) tipEl.hidden = true;
+}
+// 160ms grace: enough to cross the pill→card gap, short enough to feel crisp.
+function scheduleHideTip() {
+  clearTimeout(tipHideTimer);
+  tipHideTimer = setTimeout(hideTip, 160);
 }
 const tipRow = (k, v) => `<div class="fp-tip-row"><span class="k">${escHtml(k)}</span><span class="v">${escHtml(v)}</span></div>`;
 function connValuesHtml(connId) {
@@ -190,9 +211,14 @@ function connValuesHtml(connId) {
     (names.length > shown.length ? tipRow('…', `${names.length - shown.length} more`) : '');
 }
 function peerTipHtml(p) {
+  // When the peer is one of THIS app's own widgets, its node row becomes a
+  // link that opens that widget's faceplate — connections are navigable.
+  const nodeVal = p.peerInstanceId
+    ? `<button type="button" class="fp-tip-link" data-open-widget="${escHtml(p.peerInstanceId)}" title="Open this widget's faceplate">${escHtml(p.node)} ↗</button>`
+    : escHtml(p.node);
   return `<div class="fp-tip-title">${escHtml(multiCtx && p.context ? p.context : p.node)}</div>` +
     (p.context ? tipRow('context', p.context) : '') +
-    tipRow('node', p.node) +
+    `<div class="fp-tip-row"><span class="k">node</span><span class="v">${nodeVal}</span></div>` +
     tipRow('system', p.system) +
     tipRow('CP', p.profile) +
     tipRow('conn', String(p.connId).slice(0, 10) + (String(p.connId).length > 10 ? '…' : '')) +

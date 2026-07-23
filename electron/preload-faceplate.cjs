@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('faceplate', {
   action: (property, value, connId) =>
     ipcRenderer.invoke('widget:action', { id: INSTANCE_ID, property, value, connId: connId || null }),
   setPinned: (pinned) => ipcRenderer.invoke('widget:fp-pin', { id: INSTANCE_ID, pinned }),
+  // Open ANOTHER widget's faceplate (hover-card links: a pill's peer may be a
+  // widget of this same app — its card links straight to it).
+  openWidget: (id) => ipcRenderer.invoke('widget:open', String(id || '')),
   adjustHeight: (delta) => ipcRenderer.invoke('widget:fp-adjust-height', { id: INSTANCE_ID, delta }),
   onState: (cb) => {
     const h = (_e, payload) => {

@@ -252,8 +252,8 @@ const d3 = w3.document;
 const subs3 = { state: [], theme: [], info: [] };
 w3.__actions = [];
 const PEERS_MC = [
-  { connId: 't1', system: 'Acme', node: 'Matt', profile: 'padi.lease.basic', ctxId: 'CA', context: 'Suite 200' },
-  { connId: 't2', system: 'Tina Co', node: 'Tina', profile: 'padi.lease.basic', ctxId: 'CB', context: 'Suite 310' },
+  { connId: 't1', system: 'Acme', node: 'Matt', profile: 'padi.lease.basic', ctxId: 'CA', context: 'Suite 200', peerInstanceId: null },
+  { connId: 't2', system: 'Tina Co', node: 'Tina', profile: 'padi.lease.basic', ctxId: 'CB', context: 'Suite 310', peerInstanceId: 'instTina' },
 ];
 w3.faceplate = {
   instanceId: 'instC',
@@ -285,6 +285,7 @@ w3.faceplate = {
   action: async (property, value, connId) => w3.__actions.push({ property, value, connId: connId ?? null }),
   setPinned: async (p) => p,
   adjustHeight: () => {},
+  openWidget: async (id) => { w3.__openedWidget = id; },
   onState: (cb) => subs3.state.push(cb),
   onTheme: (cb) => subs3.theme.push(cb),
   onInfo: (cb) => subs3.info.push(cb),
@@ -328,13 +329,36 @@ assert('All-view write is unscoped (manager fans out per context)',
   assert('card names the node + system', t.includes('Tina') && t.includes('Tina Co'));
   assert('card names the CP + connection', t.includes('padi.lease.basic') && t.includes('t2'));
   assert('card shows that connection\'s LIVE values', t.includes('rent') && t.includes('5200'));
+  // UI v45: the card is a real hover TARGET — leaving the pill toward the
+  // card must not kill it (grace timer), and leaving the card hides it.
   pill310.dispatchEvent(new w3.Event('mouseleave'));
-  assert('card hides on mouseleave', tip.hidden);
+  assert('card survives the pill→card gap (grace, not instant hide)', !tip.hidden);
+  tip.dispatchEvent(new w3.Event('mouseenter'));
+  await new Promise((r) => setTimeout(r, 220));
+  assert('card stays while the cursor is ON it', !tip.hidden);
+  tip.dispatchEvent(new w3.Event('mouseleave'));
+  await new Promise((r) => setTimeout(r, 220));
+  assert('card hides after leaving it', tip.hidden);
+
+  // UI v45: a peer that is one of THIS app's widgets is a LINK.
+  pill310.dispatchEvent(new w3.Event('mouseenter'));
+  const link = d3.querySelector('.fp-tip [data-open-widget]');
+  assert('local peer renders as a link', !!link && link.dataset.openWidget === 'instTina' && link.textContent.includes('Tina'));
+  link.dispatchEvent(new w3.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  assert('link opens the peer widget\'s faceplate', w3.__openedWidget === 'instTina');
+  assert('card closes after following the link', tip.hidden);
+  q3('#fpStrip .peer')[1].dispatchEvent(new w3.Event('mouseenter'));
+  assert('foreign peer (Matt) has NO link', !d3.querySelector('.fp-tip [data-open-widget]'));
+  q3('#fpStrip .peer')[1].dispatchEvent(new w3.Event('mouseleave'));
+  await new Promise((r) => setTimeout(r, 220));
+
   q3('#fpStrip .peer')[0].dispatchEvent(new w3.Event('mouseenter'));
   const tAll = d3.querySelector('.fp-tip').textContent;
   assert('All-pill card summarizes places + write semantics',
     tAll.includes('2 connections') && tAll.includes('Suite 200, Suite 310') && tAll.includes('broadcast'));
   q3('#fpStrip .peer')[0].dispatchEvent(new w3.Event('mouseleave'));
+  await new Promise((r) => setTimeout(r, 220));
 }
 
 if (w3.__errors.length) failures.push('part3 uncaught errors: ' + w3.__errors);

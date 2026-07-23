@@ -295,6 +295,9 @@ export class WidgetManager extends EventEmitter {
           const m = k.slice(prefix.length).match(/^([^/]+)\/(consumer|provider)$/);
           if (!m || m[2] !== peerSide) continue;
           const p = String(keys[k]).split('/'); // cns/<sys>/nodes/<node>/contexts/<ctx>
+          // If the peer node is one of THIS app's own widgets, carry its
+          // instance id — the faceplate hover card links straight to it.
+          const local = this.#instances.find((i) => i.nodeId === p[3]);
           peers.push({
             connId: m[1],
             profile: cap.profile,
@@ -302,6 +305,7 @@ export class WidgetManager extends EventEmitter {
             context: ctx.name,
             system: keys[`cns/${p[1]}/name`] || p[1],
             node: keys[`cns/${p[1]}/nodes/${p[3]}/name`] || p[3],
+            peerInstanceId: local ? local.id : null,
           });
         }
       }
