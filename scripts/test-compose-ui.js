@@ -180,6 +180,12 @@ check('card shows role-resolved writable / read only (no propagate flag)',
   check('draft candidate edge is dashed (maybe), none bound yet',
     g.querySelectorAll('.ge.maybe').length === 1 && g.querySelectorAll('.ge.bound').length === 0);
   check('graph note explains draft mode', $('cmpGraphNote').textContent.includes('potential'));
+  // v51 wire sheet: widget centered — CONSUMING roles wire to the LEFT half.
+  const capRect = g.querySelector('.gc rect');
+  const widgetRect = g.querySelector('.gw rect');
+  check('consumer capability sits LEFT of the centered widget',
+    Number(capRect.getAttribute('x')) + 170 <= Number(widgetRect.getAttribute('x')));
+  check('candidate context sits at the far left', Number(g.querySelector('.gx.cand rect').getAttribute('x')) < Number(capRect.getAttribute('x')));
 }
 
 // drop a lamp from the palette — should auto-bind to the first readable prop

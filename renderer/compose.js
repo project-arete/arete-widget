@@ -1198,52 +1198,85 @@
     }
     if (note) {
       note.textContent = live
-        ? 'connections — live wiring (edges flash on traffic)'
-        : 'connections — potential wiring (dashed = context this draft COULD join; go live to bind)';
+        ? 'connections — live wiring: consumed from the left, provided to the right (edges flash on traffic)'
+        : 'connections — potential wiring: consumed from the left, provided to the right (dashed = context this draft COULD join)';
     }
-    const capY = (i) => 34 + i * 54;
+    // Wire-sheet layout (v51): the widget sits in the MIDDLE; its consuming
+    // roles wire to contexts on the LEFT (what it draws from), its providing
+    // roles to contexts on the RIGHT (what it serves). A context bound to
+    // both sides is drawn on each side it participates in.
+    const W = 1000;
+    const col = {
+      ctxL: { x: 10, w: 195 },   capL: { x: 225, w: 170 },
+      widget: { x: 415, w: 170 },
+      capR: { x: 605, w: 170 },  ctxR: { x: 795, w: 195 },
+    };
+    const sides = {
+      left: caps.map((c, i) => ({ ...c, i })).filter((c) => c.role === 'consumer'),
+      right: caps.map((c, i) => ({ ...c, i })).filter((c) => c.role === 'provider'),
+    };
+    const ctxFor = (side) => ctxs
+      .map((ctx) => {
+        const linked = side.filter((c) => ctx.candidate
+          ? (ctx.roles[`${oppRole(c.role)}|${c.profile}`] || 0) > 0
+          : (ctx.peers || []).some((p) => p.profile === c.profile));
+        // a live joined context with no bindings yet still gets a dotted edge
+        // from every capability on this side — declared there, awaiting broker.
+        const edgeCaps = linked.length ? linked : (ctx.live ? side : []);
+        return { ctx, edgeCaps };
+      })
+      .filter((e) => e.edgeCaps.length);
+    const lanes = { left: ctxFor(sides.left), right: ctxFor(sides.right) };
+    const capY = (k) => 34 + k * 54;
     const ctxY = (j) => 34 + j * 62;
-    const H = Math.max(capY(caps.length - 1) + 46, ctxs.length ? ctxY(ctxs.length - 1) + 54 : 0, 96);
+    const H = Math.max(
+      capY(Math.max(sides.left.length, sides.right.length, 1) - 1) + 46,
+      ctxY(Math.max(lanes.left.length, lanes.right.length, 1) - 1) + 54,
+      96
+    );
     const midY = H / 2;
     const parts = [];
-    // widget node (left, vertically centered)
     const title = cur.def.title || cur.def.widget || 'draft';
-    parts.push(`<g class="gw"><rect x="6" y="${midY - 24}" width="150" height="48" rx="8"/>
-      <text x="81" y="${midY - 3}" text-anchor="middle" class="gt">${gEsc(title.slice(0, 20))}</text>
-      <text x="81" y="${midY + 14}" text-anchor="middle" class="gs">${live ? 'live' : 'draft'}</text></g>`);
-    // capability chips + widget→cap edges
-    caps.forEach((c, i) => {
-      const y = capY(i);
-      parts.push(`<line class="ge" x1="156" y1="${midY}" x2="206" y2="${y + 20}"/>`);
-      parts.push(`<g class="gc"><rect x="206" y="${y}" width="168" height="40" rx="6"/>
-        <text x="290" y="${y + 17}" text-anchor="middle" class="gt">${gEsc(c.profile.slice(0, 22))}</text>
-        <text x="290" y="${y + 32}" text-anchor="middle" class="gs">${gEsc(c.role)}</text></g>`);
-    });
-    // context boxes + cap→ctx edges
-    ctxs.forEach((ctx, j) => {
-      const y = ctxY(j);
-      const linked = caps.filter((c) => ctx.candidate
-        ? (ctx.roles[`${oppRole(c.role)}|${c.profile}`] || 0) > 0
-        : (ctx.peers || []).some((p) => p.profile === c.profile));
-      // a live joined context with no bindings yet still gets a dotted edge
-      // from every capability — declared there, awaiting the broker.
-      const edgeCaps = linked.length ? linked : (ctx.live ? caps : []);
-      for (const c of edgeCaps) {
-        const i = caps.indexOf(c);
-        const bound = !ctx.candidate && (ctx.peers || []).some((p) => p.profile === c.profile);
-        parts.push(`<line id="ge-${gEsc(c.profile)}-${gEsc(ctx.id)}" class="ge${bound ? ' bound' : ' maybe'}"
-          x1="374" y1="${capY(i) + 20}" x2="424" y2="${y + 20}"/>`);
-      }
-      const peerLine = ctx.candidate
-        ? gEsc(ctx.partnersText.slice(0, 34))
-        : (ctx.peers || []).length
-          ? gEsc((ctx.peers || []).slice(0, 2).map((p) => p.node).join(', ').slice(0, 30) + ((ctx.peers || []).length > 2 ? ` +${ctx.peers.length - 2}` : ''))
-          : 'awaiting broker';
-      parts.push(`<g class="gx${ctx.candidate ? ' cand' : ''}"><rect x="424" y="${y}" width="210" height="40" rx="6"/>
-        <text x="434" y="${y + 17}" class="gt">${gEsc(String(ctx.name).slice(0, 26))}</text>
-        <text x="434" y="${y + 32}" class="gs">${peerLine}</text></g>`);
-    });
-    svg.setAttribute('viewBox', `0 0 640 ${H}`);
+    parts.push(`<g class="gw"><rect x="${col.widget.x}" y="${midY - 24}" width="${col.widget.w}" height="48" rx="8"/>
+      <text x="${col.widget.x + col.widget.w / 2}" y="${midY - 3}" text-anchor="middle" class="gt">${gEsc(title.slice(0, 20))}</text>
+      <text x="${col.widget.x + col.widget.w / 2}" y="${midY + 14}" text-anchor="middle" class="gs">${live ? 'live' : 'draft'}</text></g>`);
+
+    const drawSide = (side, lane, capCol, ctxCol, leftward) => {
+      const capYs = new Map();
+      side.forEach((c, k) => {
+        const y = capY(k);
+        capYs.set(c.profile + '|' + c.role, y + 20);
+        const wx = leftward ? col.widget.x : col.widget.x + col.widget.w;
+        const cx = leftward ? capCol.x + capCol.w : capCol.x;
+        parts.push(`<line class="ge" x1="${wx}" y1="${midY}" x2="${cx}" y2="${y + 20}"/>`);
+        parts.push(`<g class="gc"><rect x="${capCol.x}" y="${y}" width="${capCol.w}" height="40" rx="6"/>
+          <text x="${capCol.x + capCol.w / 2}" y="${y + 17}" text-anchor="middle" class="gt">${gEsc(c.profile.slice(0, 22))}</text>
+          <text x="${capCol.x + capCol.w / 2}" y="${y + 32}" text-anchor="middle" class="gs">${gEsc(c.role)}</text></g>`);
+      });
+      lane.forEach(({ ctx, edgeCaps }, j) => {
+        const y = ctxY(j);
+        for (const c of edgeCaps) {
+          const bound = !ctx.candidate && (ctx.peers || []).some((p) => p.profile === c.profile);
+          const cy = capYs.get(c.profile + '|' + c.role) ?? midY;
+          const x1 = leftward ? capCol.x : capCol.x + capCol.w;
+          const x2 = leftward ? ctxCol.x + ctxCol.w : ctxCol.x;
+          parts.push(`<line id="ge-${gEsc(c.profile)}-${gEsc(ctx.id)}" class="ge${bound ? ' bound' : ' maybe'}"
+            x1="${x1}" y1="${cy}" x2="${x2}" y2="${y + 20}"/>`);
+        }
+        const peerLine = ctx.candidate
+          ? gEsc(ctx.partnersText.slice(0, 32))
+          : (ctx.peers || []).length
+            ? gEsc((ctx.peers || []).slice(0, 2).map((p) => p.node).join(', ').slice(0, 28) + ((ctx.peers || []).length > 2 ? ` +${ctx.peers.length - 2}` : ''))
+            : 'awaiting broker';
+        parts.push(`<g class="gx${ctx.candidate ? ' cand' : ''}"><rect x="${ctxCol.x}" y="${y}" width="${ctxCol.w}" height="40" rx="6"/>
+          <text x="${ctxCol.x + 10}" y="${y + 17}" class="gt">${gEsc(String(ctx.name).slice(0, 24))}</text>
+          <text x="${ctxCol.x + 10}" y="${y + 32}" class="gs">${peerLine}</text></g>`);
+      });
+    };
+    drawSide(sides.left, lanes.left, col.capL, col.ctxL, true);
+    drawSide(sides.right, lanes.right, col.capR, col.ctxR, false);
+
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('height', String(H));
     svg.innerHTML = parts.join('');
   }
