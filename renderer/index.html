@@ -15,7 +15,7 @@
         <img class="logo" src="logo.png" alt="Arete" />
         <div>
           <h1>Arete Widget</h1>
-          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v49</span></p>
+          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v50</span></p>
         </div>
       </div>
       <div class="realm-ind" id="realmInd" hidden>
@@ -98,6 +98,10 @@
               </span>
             </div>
             <div class="cmp-previewwrap"><iframe id="cmpPreview" title="Widget preview"></iframe></div>
+            <div class="cmp-graph" id="cmpGraphBox">
+              <p class="muted-note" id="cmpGraphNote">connections — how this widget wires into the realm</p>
+              <svg id="cmpGraph" width="100%" xmlns="http://www.w3.org/2000/svg"></svg>
+            </div>
             <div class="cmp-errors" id="cmpErrors" hidden></div>
             <details class="cmp-yaml"><summary>YAML</summary>
               <textarea id="cmpYaml" spellcheck="false"></textarea>

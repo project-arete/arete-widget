@@ -135,7 +135,7 @@ function check(name, ok) {
 // app.js global (same window in the real app): smart-match context join.
 // One realm context with a complementary (provider) padi.light capability.
 window.contextsMatching = () => [
-  { id: 'ctxJOIN', name: 'Landlord hall', partnersText: '1 padi.light provider, 1 unbound', waiting: 1, declarations: 2, roles: {}, also: [] },
+  { id: 'ctxJOIN', name: 'Landlord hall', partnersText: '1 padi.light provider, 1 unbound', waiting: 1, declarations: 2, roles: { 'provider|padi.light': 1 }, also: [] },
 ];
 
 // ---- boot the real compose.js ----
@@ -170,6 +170,17 @@ check('draft becomes VALID with padi.light consumer', $('cmpStatus').classList.c
 check('registry props table lists sOut', $('cmpCaps').textContent.includes('sOut'));
 check('card shows role-resolved writable / read only (no propagate flag)',
   $('cmpCaps').textContent.includes('writable') && $('cmpCaps').textContent.includes('read only') && !$('cmpCaps').textContent.includes('propagate'));
+
+// ---- connection graph (UI v50): potential wiring in draft mode ----
+{
+  const g = $('cmpGraph');
+  check('wiring graph rendered under the preview', !!g && g.querySelectorAll('.gc').length === 1 && g.textContent.includes('padi.light'));
+  check('graph shows the smart-match candidate context (dashed)',
+    g.querySelectorAll('.gx.cand').length === 1 && g.textContent.includes('Landlord hall'));
+  check('draft candidate edge is dashed (maybe), none bound yet',
+    g.querySelectorAll('.ge.maybe').length === 1 && g.querySelectorAll('.ge.bound').length === 0);
+  check('graph note explains draft mode', $('cmpGraphNote').textContent.includes('potential'));
+}
 
 // drop a lamp from the palette — should auto-bind to the first readable prop
 const lampBtn = [...$('cmpPalette').querySelectorAll('button')].find((b) => b.textContent === 'lamp');
@@ -346,6 +357,22 @@ if ($('cmpStatus').classList.contains('ok')) {
     window.__goLive.length === 2 && window.__goLive[1].nodeId === ids1.n &&
     window.__goLive[1].contexts?.length === 1 && window.__goLive[1].contexts[0].id === ids1.canvasCtx);
   check('second go-live never repeats init', window.__goLive[0].applyInit === true && window.__goLive[1].applyInit === false);
+
+  // ---- connection graph, LIVE mode: real wiring + traffic flash ----
+  check('live graph shows the joined context, awaiting broker',
+    $('cmpGraph').textContent.includes('awaiting broker') && $('cmpGraphNote').textContent.includes('live wiring'));
+  window.__liveCb({
+    state: { sOut: '1' }, connections: 1,
+    peers: [{ connId: 'cc1', profile: 'padi.light', ctxId: ids1.canvasCtx, context: 'Edited while live', system: 'S', node: 'Switchy' }],
+    perConn: { cc1: { sOut: '1' } },
+  });
+  await sleep(50);
+  const liveEdge = document.getElementById(`ge-padi.light-${ids1.canvasCtx}`);
+  check('a broker binding turns the edge SOLID (bound) and names the peer',
+    !!liveEdge && liveEdge.classList.contains('bound') && $('cmpGraph').textContent.includes('Switchy'));
+  check('traffic flashes the edge', liveEdge.classList.contains('on'));
+  await sleep(600);
+  check('flash decays', !document.getElementById(`ge-padi.light-${ids1.canvasCtx}`)?.classList.contains('on') );
   const stopsBefore = window.__liveStops || 0;
   const t = $('cmpFtitle');
   t.value = 'Edited while live';

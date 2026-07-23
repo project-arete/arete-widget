@@ -202,6 +202,20 @@ button.danger { color: #e2635a; }
 .cmp-pk-roledesc { opacity: 0.75; font-weight: 400; }
 .cmp-check { flex-direction: row !important; align-items: center; gap: 6px; font-size: 12px; }
 .cmp-check span { opacity: 0.85; }
+/* Connection graph under the Preview (UI v50) — the draft's wire sheet. */
+.cmp-graph { margin-top: 10px; }
+.cmp-graph svg { display: block; }
+.cmp-graph .gw rect { fill: var(--panel-2); stroke: var(--accent); stroke-width: 1.2; }
+.cmp-graph .gc rect { fill: var(--panel-2); stroke: var(--border); }
+.cmp-graph .gx rect { fill: var(--panel-2); stroke: var(--border); }
+.cmp-graph .gx.cand rect { fill: none; stroke-dasharray: 4 3; }
+.cmp-graph .gt { fill: var(--text); font-size: 12px; font-weight: 600; }
+.cmp-graph .gs { fill: var(--muted); font-size: 10px; }
+.cmp-graph .ge { stroke: var(--muted); stroke-width: 1.2; opacity: 0.7; }
+.cmp-graph .ge.maybe { stroke-dasharray: 4 3; opacity: 0.5; }
+.cmp-graph .ge.bound { stroke: var(--green, #3ecf8e); opacity: 0.9; }
+.cmp-graph .ge.on { stroke: var(--accent); stroke-width: 2.6; opacity: 1; }
+
 .cmp-livepick { border: 1px solid var(--accent, #4c8ef5); border-radius: 8px; padding: 10px 12px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
 .cmp-livepick label.checkbox { flex-direction: row; align-items: baseline; gap: 6px; font-size: 12px; }
 .cmp-lp-btns { display: flex; gap: 8px; margin-top: 4px; }

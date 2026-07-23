@@ -129,6 +129,7 @@
     renderRules();     // has its own focus guard
     if (!ui.mock.contains(focused)) renderMock();
     renderIdentityWarnings();
+    renderGraph(); // the wiring under the Preview follows every draft change
     if (rebuildPreview) await buildPreview();
   }
 
@@ -965,9 +966,11 @@
     if (!liveMode) return;
     liveMode = false;
     liveLast = null;
+    graphPrevPerConn = {};
     if (window.arete.composeLiveStop) window.arete.composeLiveStop().catch(() => {});
     updateLiveBtn();
     buildPreview();
+    renderGraph(); // back to the potential-wiring view
     if (note) { ui.status.textContent = note; ui.status.className = 'cmp-status'; }
   }
 
@@ -1115,8 +1118,10 @@
     persist();
     liveMode = true;
     liveLast = null;
+    graphPrevPerConn = {};
     updateLiveBtn();
     await buildPreview();
+    renderGraph(); // switch to the live wiring view
     ui.status.textContent = `live in ${ctxs.map((c) => `“${c.name}”`).join(', ')} — awaiting broker`;
     ui.status.className = 'cmp-status ok';
   }
@@ -1138,7 +1143,128 @@
       }
       liveLast = payload;
       if (liveMode && bridge && bridge.pushLive) bridge.pushLive(payload);
+      if (liveMode) {
+        renderGraph();      // peers/bindings may have changed
+        graphFlash(payload); // traffic pulse on the wire
+      }
     });
+  }
+
+  // ------------------------------------------------- connection graph (v50)
+  // The wire-sheet under the Preview: widget → capability → context → peers.
+  // DRAFT mode shows the POTENTIAL wiring (dashed candidates from the same
+  // smart-match the go-live chooser uses); LIVE mode shows the actual wiring,
+  // and edges flash when a connection carries a value change (the Monitor
+  // trick, scoped to this one widget).
+  let graphPrevPerConn = {};
+  const gEsc = esc;
+  const oppRole = (r) => (r === 'provider' ? 'consumer' : 'provider');
+
+  function graphData() {
+    const caps = ((check && check.model && check.model.capabilities) ||
+      (Array.isArray(cur.def.capabilities) ? cur.def.capabilities : []))
+      .filter((c) => c && c.profile && c.role)
+      .map((c) => ({ profile: c.profile, role: c.role }));
+    if (liveMode) {
+      const peers = (liveLast && liveLast.peers) || [];
+      return {
+        live: true,
+        caps,
+        ctxs: liveCtxs.map((c) => ({
+          id: c.id, name: c.name, live: true,
+          peers: peers.filter((p) => p.ctxId === c.id),
+        })),
+      };
+    }
+    return {
+      live: false,
+      caps,
+      ctxs: liveMatches().slice(0, 4).map((c) => ({
+        id: c.id, name: c.name, candidate: true, roles: c.roles || {}, partnersText: c.partnersText || '',
+      })),
+    };
+  }
+
+  function renderGraph() {
+    const svg = $('cmpGraph');
+    const note = $('cmpGraphNote');
+    if (!svg) return;
+    const { caps, ctxs, live } = graphData();
+    if (!caps.length) {
+      svg.setAttribute('height', '0');
+      svg.innerHTML = '';
+      if (note) note.textContent = 'connections — add a capability and the wiring graph appears here';
+      return;
+    }
+    if (note) {
+      note.textContent = live
+        ? 'connections — live wiring (edges flash on traffic)'
+        : 'connections — potential wiring (dashed = context this draft COULD join; go live to bind)';
+    }
+    const capY = (i) => 34 + i * 54;
+    const ctxY = (j) => 34 + j * 62;
+    const H = Math.max(capY(caps.length - 1) + 46, ctxs.length ? ctxY(ctxs.length - 1) + 54 : 0, 96);
+    const midY = H / 2;
+    const parts = [];
+    // widget node (left, vertically centered)
+    const title = cur.def.title || cur.def.widget || 'draft';
+    parts.push(`<g class="gw"><rect x="6" y="${midY - 24}" width="150" height="48" rx="8"/>
+      <text x="81" y="${midY - 3}" text-anchor="middle" class="gt">${gEsc(title.slice(0, 20))}</text>
+      <text x="81" y="${midY + 14}" text-anchor="middle" class="gs">${live ? 'live' : 'draft'}</text></g>`);
+    // capability chips + widget→cap edges
+    caps.forEach((c, i) => {
+      const y = capY(i);
+      parts.push(`<line class="ge" x1="156" y1="${midY}" x2="206" y2="${y + 20}"/>`);
+      parts.push(`<g class="gc"><rect x="206" y="${y}" width="168" height="40" rx="6"/>
+        <text x="290" y="${y + 17}" text-anchor="middle" class="gt">${gEsc(c.profile.slice(0, 22))}</text>
+        <text x="290" y="${y + 32}" text-anchor="middle" class="gs">${gEsc(c.role)}</text></g>`);
+    });
+    // context boxes + cap→ctx edges
+    ctxs.forEach((ctx, j) => {
+      const y = ctxY(j);
+      const linked = caps.filter((c) => ctx.candidate
+        ? (ctx.roles[`${oppRole(c.role)}|${c.profile}`] || 0) > 0
+        : (ctx.peers || []).some((p) => p.profile === c.profile));
+      // a live joined context with no bindings yet still gets a dotted edge
+      // from every capability — declared there, awaiting the broker.
+      const edgeCaps = linked.length ? linked : (ctx.live ? caps : []);
+      for (const c of edgeCaps) {
+        const i = caps.indexOf(c);
+        const bound = !ctx.candidate && (ctx.peers || []).some((p) => p.profile === c.profile);
+        parts.push(`<line id="ge-${gEsc(c.profile)}-${gEsc(ctx.id)}" class="ge${bound ? ' bound' : ' maybe'}"
+          x1="374" y1="${capY(i) + 20}" x2="424" y2="${y + 20}"/>`);
+      }
+      const peerLine = ctx.candidate
+        ? gEsc(ctx.partnersText.slice(0, 34))
+        : (ctx.peers || []).length
+          ? gEsc((ctx.peers || []).slice(0, 2).map((p) => p.node).join(', ').slice(0, 30) + ((ctx.peers || []).length > 2 ? ` +${ctx.peers.length - 2}` : ''))
+          : 'awaiting broker';
+      parts.push(`<g class="gx${ctx.candidate ? ' cand' : ''}"><rect x="424" y="${y}" width="210" height="40" rx="6"/>
+        <text x="434" y="${y + 17}" class="gt">${gEsc(String(ctx.name).slice(0, 26))}</text>
+        <text x="434" y="${y + 32}" class="gs">${peerLine}</text></g>`);
+    });
+    svg.setAttribute('viewBox', `0 0 640 ${H}`);
+    svg.setAttribute('height', String(H));
+    svg.innerHTML = parts.join('');
+  }
+
+  // Live traffic → flash the edge of the context the changed connection is in.
+  function graphFlash(payload) {
+    if (!liveMode || !payload) return;
+    const peers = payload.peers || [];
+    const next = payload.perConn || {};
+    for (const connId in next) {
+      const prev = graphPrevPerConn[connId];
+      if (prev && JSON.stringify(prev) === JSON.stringify(next[connId])) continue;
+      const peer = peers.find((p) => p.connId === connId);
+      if (!peer) continue;
+      const edge = document.getElementById(`ge-${peer.profile}-${peer.ctxId}`);
+      if (edge) {
+        edge.classList.add('on');
+        setTimeout(() => edge.classList.remove('on'), 450);
+      }
+    }
+    graphPrevPerConn = JSON.parse(JSON.stringify(next));
   }
 
   function scheduleChrome() {
