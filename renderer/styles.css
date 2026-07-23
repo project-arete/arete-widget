@@ -70,8 +70,10 @@ img.logo { width: 32px; height: 32px; border-radius: 8px; display: block; }
 
 .state-right { display: flex; align-items: center; gap: 10px; }
 
-/* Global widget zoom (UI v46) — sits just left of the connection state. */
-.zoomctl { display: flex; align-items: center; gap: 2px; margin-right: 14px; }
+/* Global widget zoom (UI v46) — INSIDE .state-right, just left of the
+   connection dot (the header centers the realm name absolutely, so a
+   free-floating flex child would collide with it — learned in v47). */
+.zoomctl { display: flex; align-items: center; gap: 2px; margin-right: 6px; }
 .zoomctl button {
   background: none; border: 1px solid var(--border, #2a323d); color: var(--muted, #9aa6b4);
   border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1;
