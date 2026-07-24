@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="widget.css" />
     <link rel="stylesheet" href="compose.css" />
+    <link rel="stylesheet" href="graph.css" />
   </head>
   <body>
     <header class="topbar">
@@ -15,7 +16,7 @@
         <img class="logo" src="logo.png" alt="Arete" />
         <div>
           <h1>Arete Widget</h1>
-          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v53</span></p>
+          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v66</span></p>
         </div>
       </div>
       <div class="realm-ind" id="realmInd" hidden>
@@ -40,6 +41,8 @@
               role="tab" aria-selected="false" aria-controls="panel-status">
         Status<span class="tab-badge" id="statusBadge" hidden></span>
       </button>
+      <button class="tab" id="tab-graph" data-panel="panel-graph"
+              role="tab" aria-selected="false" aria-controls="panel-graph">Graph</button>
       <button class="tab" id="tab-compose" data-panel="panel-compose"
               role="tab" aria-selected="false" aria-controls="panel-compose">Compose</button>
       <button class="tab" id="tab-config" data-panel="panel-config"
@@ -59,6 +62,11 @@
           </div>
           <div id="tileGrid" class="tile-grid"></div>
         </section>
+      </div>
+
+      <!-- ============================ GRAPH ============================ -->
+      <div class="panel" id="panel-graph" role="tabpanel" aria-labelledby="tab-graph" hidden>
+        <div id="graphHost"></div>
       </div>
 
       <!-- =========================== COMPOSE =========================== -->
@@ -128,15 +136,14 @@
           </section>
         </div>
 
-        <!-- full-width wire sheet DOCKED to the window bottom: consumers flow
-             in from the LEFT, the widget sits in the middle, providers serve
-             out to the RIGHT. Content scrolls behind; collapsible. -->
+        <!-- the WIRE SHEET, docked full-width to the window bottom: consumers
+             flow in from the LEFT, the widget sits in the middle, providers
+             serve out to the RIGHT. No chrome — the sheet hugs its content;
+             the toggle lives at the lower right, exactly where it sits when
+             collapsed to the corner tab. Content scrolls behind. -->
         <section class="card cmp-graph" id="cmpGraphBox">
-          <div class="cmp-graph-head">
-            <p class="muted-note" id="cmpGraphNote">connections — how this widget wires into the realm</p>
-            <button type="button" class="ghost" id="cmpGraphToggle" title="Show / hide the wiring graph">hide ▾</button>
-          </div>
           <div class="cmp-graph-scroll"><svg id="cmpGraph" width="100%" xmlns="http://www.w3.org/2000/svg"></svg></div>
+          <button type="button" class="ghost" id="cmpGraphToggle" title="Show / hide the wire sheet">hide ▾</button>
         </section>
       </div>
 
@@ -246,5 +253,6 @@
 
     <script src="app.js"></script>
     <script src="compose.js"></script>
+    <script src="graph.js"></script>
   </body>
 </html>

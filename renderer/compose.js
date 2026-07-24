@@ -1170,7 +1170,7 @@
     const toggle = $('cmpGraphToggle');
     if (!box || !toggle) return;
     box.classList.toggle('closed', !graphOpen);
-    toggle.textContent = graphOpen ? 'hide ▾' : 'connections ▴';
+    toggle.textContent = graphOpen ? 'hide ▾' : 'wiring ▴';
     const panel = document.getElementById('panel-compose');
     if (panel) panel.style.paddingBottom = (box.offsetHeight + 16) + 'px';
   }
@@ -1255,14 +1255,20 @@
       })
       .filter((e) => e.edgeCaps.length);
     const lanes = { left: ctxFor(sides.left), right: ctxFor(sides.right) };
-    const capY = (k) => 34 + k * 54;
-    const ctxY = (j) => 34 + j * 62;
-    const H = Math.max(
-      capY(Math.max(sides.left.length, sides.right.length, 1) - 1) + 46,
-      ctxY(Math.max(lanes.left.length, lanes.right.length, 1) - 1) + 54,
-      96
+    // Every column is vertically CENTERED (v60): the sheet's height is the
+    // tallest column's content plus a slim margin, and each column floats to
+    // the middle — no fixed top offset eating space above the drawing.
+    const colH = (n, pitch) => (n ? (n - 1) * pitch + 40 : 0);
+    const contentH = Math.max(
+      colH(sides.left.length, 54), colH(sides.right.length, 54),
+      colH(lanes.left.length, 62), colH(lanes.right.length, 62),
+      48 // the widget box itself
     );
+    const H = contentH + 24; // 12px visual margin top and bottom
     const midY = H / 2;
+    const topFor = (n, pitch) => (H - colH(n, pitch)) / 2;
+    const capY = (k, n) => topFor(n, 54) + k * 54;
+    const ctxY = (j, n) => topFor(n, 62) + j * 62;
     const parts = [];
     const title = cur.def.title || cur.def.widget || 'draft';
     parts.push(`<g class="gw"><rect x="${col.widget.x}" y="${midY - 24}" width="${col.widget.w}" height="48" rx="8"/>
@@ -1272,7 +1278,7 @@
     const drawSide = (side, lane, capCol, ctxCol, leftward) => {
       const capYs = new Map();
       side.forEach((c, k) => {
-        const y = capY(k);
+        const y = capY(k, side.length);
         capYs.set(c.profile + '|' + c.role, y + 20);
         const wx = leftward ? col.widget.x : col.widget.x + col.widget.w;
         const cx = leftward ? capCol.x + capCol.w : capCol.x;
@@ -1282,7 +1288,7 @@
           <text x="${capCol.x + capCol.w / 2}" y="${y + 32}" text-anchor="middle" class="gs">${gEsc(c.role)}</text></g>`);
       });
       lane.forEach(({ ctx, edgeCaps }, j) => {
-        const y = ctxY(j);
+        const y = ctxY(j, lane.length);
         for (const c of edgeCaps) {
           const bound = !ctx.candidate && (ctx.peers || []).some((p) => p.profile === c.profile);
           const cy = capYs.get(c.profile + '|' + c.role) ?? midY;

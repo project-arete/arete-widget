@@ -1,0 +1,29 @@
+# Lease Info Display — client role of cp:padi.lease.info ("Information about a lease").
+widget: lease-info-display
+title: Lease Info Display
+description: A signage-style consumer - sends the id of the lease it wants and displays the holder's name, contact phone, and space name as they arrive.
+icon: "🪧"
+color: "#4ca3dd"
+
+capabilities:
+  - profile: padi.lease.info
+    role: consumer
+
+view:
+  - type: label
+    text: your request
+  - type: field
+    bind: id
+    caption: lease id desired
+  - type: split
+  - type: label
+    text: from the lease holder
+  - type: value
+    bind: name
+    caption: name (nameplate)
+  - type: value
+    bind: contact
+    caption: contact phone
+  - type: value
+    bind: space
+    caption: space name (displays)

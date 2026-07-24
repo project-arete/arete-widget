@@ -1,0 +1,29 @@
+# Lease Info Holder — server role of cp:padi.lease.info ("Information about a lease").
+widget: lease-info-holder
+title: Lease Info Holder
+description: Publishes a lease holder's signage details - name for nameplates, contact phone, and space name for displays - and shows which lease id each consumer is asking for.
+icon: "📇"
+color: "#4ca3dd"
+
+capabilities:
+  - profile: padi.lease.info
+    role: provider
+
+view:
+  - type: label
+    text: your signage details
+  - type: field
+    bind: name
+    caption: lease holder name (nameplate)
+  - type: field
+    bind: contact
+    caption: contact phone
+  - type: field
+    bind: space
+    caption: space name (displays)
+  - type: split
+  - type: label
+    text: requested by the consumer
+  - type: value
+    bind: id
+    caption: lease id desired

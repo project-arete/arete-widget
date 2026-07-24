@@ -32,6 +32,14 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arete-diag-'));
 const profileCache = new Map();
 async function fetchProfile(name) {
   if (profileCache.has(name)) return profileCache.get(name);
+  if (name && name.startsWith('local.')) {
+    // internal prototype profiles live in the app's profiles/ folder
+    try {
+      const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'profiles', name + '.json'), 'utf8'));
+      profileCache.set(name, json);
+      return json;
+    } catch (_) { profileCache.set(name, null); return null; }
+  }
   const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), { headers: { accept: 'application/json' } }).catch(() => null);
   const json = res && res.ok ? await res.json() : null;
   profileCache.set(name, json);

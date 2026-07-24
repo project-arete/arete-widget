@@ -1,0 +1,70 @@
+# Realm Simulator — provider of cp:padi.test.realm.info (dev-namespace TEST CP).
+# Plays the realm/orchestrator side so the Realm Dashboard has something to
+# consume: turn the knobs and watch the dashboard follow. Init values paint a
+# plausible realm the moment the pair binds.
+widget: realm-sim
+title: Realm Simulator
+description: Pretends to be the realm - publishes version, uptime, busyness and database capacity on cp:padi.test.realm.info so the Realm Dashboard prototype has live data to show.
+icon: "🛠"
+color: "#2196f3"
+
+capabilities:
+  - profile: padi.test.realm.info
+    role: provider
+
+view:
+  - type: label
+    text: publish realm facts
+  - type: field
+    bind: version
+    caption: CNS version
+  - type: stepper
+    bind: uptime
+    min: 0
+    step: 1
+    caption: uptime (hours)
+  - type: stepper
+    bind: clients
+    min: 0
+    step: 1
+    caption: connected clients
+  - type: stepper
+    bind: load
+    min: 0
+    max: 10
+    step: 1
+    caption: busyness (0-10)
+  - type: stepper
+    bind: rate
+    min: 0
+    step: 10
+    caption: message rate (msg/min)
+  - type: split
+  - type: label
+    text: realm database
+  - type: stepper
+    bind: dbCapacity
+    min: 0
+    step: 128
+    caption: capacity (MB)
+  - type: stepper
+    bind: dbUsed
+    min: 0
+    step: 16
+    caption: used (MB)
+  - type: stepper
+    bind: keys
+    min: 0
+    step: 50
+    caption: keys stored
+
+behavior:
+  init:
+    version: "0.9.3"
+    uptime: "128"
+    clients: "3"
+    load: "3"
+    rate: "40"
+    dbCapacity: "1024"
+    dbUsed: "412"
+    keys: "1730"

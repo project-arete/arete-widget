@@ -1,0 +1,45 @@
+# Realm Dashboard — consumer of cp:padi.test.realm.info (dev-namespace TEST
+# CP on cp.padi.io). The user-perspective exploration of "About the realm":
+# what the realm publishes about itself.
+widget: realm-dashboard
+title: Realm Dashboard
+description: About the realm, from the realm itself - version, uptime, how busy it is, and the capacity of the realm database. Prototype consumer of cp:padi.test.realm.info.
+icon: "📊"
+color: "#2196f3"
+
+capabilities:
+  - profile: padi.test.realm.info
+    role: consumer
+
+view:
+  - type: label
+    text: about this realm
+  - type: value
+    bind: version
+    caption: CNS version
+  - type: value
+    bind: uptime
+    caption: uptime (hours)
+  - type: value
+    bind: clients
+    caption: connected clients
+  - type: meter
+    bind: load
+    min: 0
+    max: 10
+    caption: busyness (0 idle · 10 saturated)
+  - type: value
+    bind: rate
+    caption: message rate (msg/min)
+  - type: split
+  - type: label
+    text: realm database
+  - type: value
+    bind: dbCapacity
+    caption: capacity (MB)
+  - type: value
+    bind: dbUsed
+    caption: used (MB)
+  - type: value
+    bind: keys
+    caption: keys stored

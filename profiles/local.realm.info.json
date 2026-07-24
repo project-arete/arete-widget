@@ -1,0 +1,23 @@
+{
+  "name": "local.realm.info",
+  "title": "About the realm (PROTOTYPE)",
+  "comment": "INTERNAL PROTOTYPE — never published to cp.padi.io. The realm/orchestrator is the provider, publishing facts about itself: software version, uptime, capacity of the realm database, and how busy it is. Any client (Monitor, Widget, PWA) is a consumer. This local.* profile exists to explore the dashboard UX before the real padi.realm.info contract is designed; the local.* namespace resolves from the app's own profiles/ folder, not the registry.",
+  "company": "Padi, Inc.",
+  "website": "https://padi.io",
+  "server": "Realm (orchestrator)",
+  "client": "Realm observer",
+  "versions": [
+    {
+      "properties": [
+        { "propagate": null, "server": null, "name": "version", "description": "CNS software version the realm is running" },
+        { "propagate": null, "server": null, "name": "uptime", "description": "Realm uptime in hours" },
+        { "propagate": null, "server": null, "name": "clients", "description": "Clients currently connected" },
+        { "propagate": null, "server": null, "name": "keys", "description": "Keys held in the realm database" },
+        { "propagate": null, "server": null, "name": "dbUsed", "description": "Realm database used (MB)" },
+        { "propagate": null, "server": null, "name": "dbCapacity", "description": "Realm database capacity (MB)" },
+        { "propagate": null, "server": null, "name": "rate", "description": "Message rate through the realm (msg/min)" },
+        { "propagate": null, "server": null, "name": "load", "description": "How busy the realm is, 0 (idle) to 10 (saturated)" }
+      ]
+    }
+  ]
+}

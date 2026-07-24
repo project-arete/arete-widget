@@ -113,6 +113,20 @@ const profileCache = new Map();
 async function fetchProfile(name) {
   if (!name) return null;
   if (profileCache.has(name)) return profileCache.get(name);
+  // `local.*` = INTERNAL PROTOTYPE profiles, resolved from the app's own
+  // profiles/ folder and NEVER from cp.padi.io. This is the sanctioned way to
+  // explore a CP's UX before the real contract is designed and published —
+  // the hard registry rule stays intact for every other namespace.
+  if (name.startsWith('local.')) {
+    try {
+      const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'profiles', name + '.json'), 'utf8'));
+      profileCache.set(name, json);
+      return json;
+    } catch (_) {
+      profileCache.set(name, null);
+      return null;
+    }
+  }
   try {
     const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
       headers: { accept: 'application/json' },

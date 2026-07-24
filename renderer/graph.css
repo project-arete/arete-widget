@@ -1,0 +1,159 @@
+/* graph.css — the GRAPH tab: live operational pattern (see renderer/graph.js).
+   One card per context; providers left, consumers right; edges are broker
+   connections that flash (and show the moved value) on traffic. */
+
+.gctx { margin-bottom: 14px; }
+.gctx svg { display: block; }
+
+/* group sub-tabs: one canvas on stage at a time */
+.gtabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.gtab {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.gtab:hover { color: var(--text); }
+.gtab.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+.gtab.mine::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.gtab-n { font-size: 10px; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 0 6px; }
+.gctx .card-tools { display: inline-flex; align-items: center; gap: 10px; }
+.gfloat { font-size: 11px; padding: 2px 10px; }
+
+/* A context that holds one of THIS app's widgets — the pattern being tried. */
+.gctx.mine h2::after {
+  content: 'yours';
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 8px;
+  vertical-align: 2px;
+}
+
+/* member boxes */
+.gn rect { fill: var(--panel-2); stroke: var(--border); stroke-width: 1; }
+.gn .gt { fill: var(--text); font-size: 13px; font-weight: 600; }
+.gn .gs { fill: var(--muted); font-size: 10px; }
+.gn.unbound rect { stroke-dasharray: 4 3; }
+.gn.unbound .gt, .gn.unbound .gs { opacity: 0.75; }
+/* floating nodes: draggable; a user-placed (pinned position) box gets a
+   slightly firmer border so you can tell it won't float away */
+.gn { cursor: grab; }
+.gn.placed rect { stroke-dasharray: none; stroke-width: 1.6; }
+/* this app's own widgets: definition accent + click affordance */
+.gn.own rect { stroke: var(--gn-accent, var(--accent)); stroke-width: 1.4; cursor: pointer; }
+.gn.own .gt { cursor: pointer; }
+.gn.own:hover rect { fill: var(--panel); }
+
+/* edges — one per broker connection; THE WIRE is the CP made visible */
+.ge {
+  fill: none;
+  stroke: #2196f3;
+  stroke-width: 1.4;
+  opacity: 0.75;
+  transition: stroke 0.15s, stroke-width 0.15s, opacity 0.15s;
+}
+/* small mid-wire arrowhead: the provider → consumer reading direction */
+.gearrow { fill: #2196f3; opacity: 0.9; }
+/* traffic: the wire glows and its dashes RUN in the direction the value
+   moved — .on = provider-written (with the arrow), .onr = consumer-written
+   (back against it) */
+.ge.on, .ge.onr {
+  stroke-width: 3;
+  opacity: 1;
+  filter: drop-shadow(0 0 4px #2196f3);
+  stroke-dasharray: 7 5;
+}
+.ge.on { animation: geFlow 0.7s linear; }
+.ge.onr { animation: geFlowR 0.7s linear; }
+@keyframes geFlow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -36; } }
+@keyframes geFlowR { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 36; } }
+.ge.hover { stroke: var(--accent); stroke-width: 2.4; opacity: 1; }
+/* fat invisible twin so thin edges are hoverable for the card */
+.ge-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+
+/* the value chip — what just moved on this connection (e.g. sOut=1) */
+.gv {
+  fill: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  opacity: 0;
+  transition: opacity 0.25s;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3;
+}
+.gv.show { opacity: 1; }
+
+/* ---- the connection hover card: the CP contract, live on this wire ---- */
+.ghover {
+  position: fixed;
+  z-index: 90;
+  min-width: 240px;
+  max-width: 330px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  font-size: 12px;
+}
+/* pinned: the card becomes a real panel — it takes clicks (✕) and stays
+   while the cursor goes off to work the widgets */
+.ghover.pinned { pointer-events: auto; border-color: var(--amber); }
+.ghover.pinned .gh-head { cursor: move; user-select: none; }
+.gh-close {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.gh-close:hover { color: var(--text); }
+.gh-head { display: flex; align-items: baseline; gap: 10px; }
+.gh-cp { font-weight: 700; color: var(--text); }
+.gh-id { color: var(--muted); font-size: 10px; margin-left: auto; }
+.gh-head .gh-close { margin-left: 4px; }
+.gh-sub { color: var(--muted); font-size: 11px; margin: 2px 0 8px; }
+.gh-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.gh-row.chg { animation: ghChg 1.2s ease-out; }
+@keyframes ghChg {
+  0% { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+  100% { background: transparent; }
+}
+.gh-dir { width: 14px; text-align: center; flex: none; }
+.gh-dir.provider { color: var(--green); }
+.gh-dir.consumer { color: var(--amber); }
+.gh-prop { color: var(--text); font-weight: 600; }
+.gh-adr { color: var(--muted); margin-left: 1px; }
+.gh-val {
+  margin-left: auto;
+  font-family: var(--mono);
+  color: var(--accent);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gh-empty { color: var(--muted); }
+.gh-foot { color: var(--muted); font-size: 10px; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }

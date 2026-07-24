@@ -1,13 +1,17 @@
-# Lease Tenant — client role of cp:padi.lease.basic ("Simple leasing profile").
+# Lease Tenant — client role of cp:padi.lease.basic ("Simple leasing profile"),
+# plus server role of cp:padi.lease.info: as the lease holder, the tenant
+# publishes its signage details (name/contact/space) on a second connection.
 widget: lease-tenant
 title: Lease Tenant
-description: Proposes a lease - who you are, the rent you offer, and the end date - and watches the landlord's terms and the lease status move through its lifecycle.
+description: Proposes a lease - who you are, the rent you offer, and the end date - watches the landlord's terms and the lease status, and publishes the holder's signage info (name, contact, space) for information consumers.
 icon: "🔑"
 color: "#f5b34c"
 
 capabilities:
   - profile: padi.lease.basic
     role: consumer
+  - profile: padi.lease.info
+    role: provider
 
 view:
   - type: label
@@ -39,3 +43,18 @@ view:
     bind: status
     values: [Interest, Offer, Accept, Decline, Approved, Delinquent, Terminated]
     caption: lease status
+  - type: split
+  - type: label
+    text: your signage info
+  - type: field
+    bind: name
+    caption: lease holder name (nameplate)
+  - type: field
+    bind: contact
+    caption: contact phone
+  - type: field
+    bind: space
+    caption: space name (displays)
+  - type: value
+    bind: id
+    caption: lease id desired (from consumer)
