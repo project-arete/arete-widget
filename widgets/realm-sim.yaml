@@ -1,10 +1,13 @@
 # Realm Simulator — provider of cp:padi.test.realm.info (dev-namespace TEST CP).
 # Plays the realm/orchestrator side so the Realm Dashboard has something to
-# consume: turn the knobs and watch the dashboard follow. Init values paint a
-# plausible realm the moment the pair binds.
+# consume until the real orchestrator publishes this itself. Turn the knobs
+# and watch the dashboard follow. Init values paint a plausible realm the
+# moment the pair binds. Property set (2026-07-24) matches the real CNS-
+# exposable metrics: version, uptime, keys, rate, load + the cumulative
+# reads/writes/updates/errors counters.
 widget: realm-sim
 title: Realm Simulator
-description: Pretends to be the realm - publishes version, uptime, busyness and database capacity on cp:padi.test.realm.info so the Realm Dashboard prototype has live data to show.
+description: Pretends to be the realm - publishes version, uptime, keys, busyness and the read/write/update/error counters on cp:padi.test.realm.info so the Realm Dashboard prototype has live data to show.
 icon: "🛠"
 color: "#2196f3"
 
@@ -24,10 +27,10 @@ view:
     step: 1
     caption: uptime (hours)
   - type: stepper
-    bind: clients
+    bind: keys
     min: 0
-    step: 1
-    caption: connected clients
+    step: 50
+    caption: keys held
   - type: stepper
     bind: load
     min: 0
@@ -41,30 +44,36 @@ view:
     caption: message rate (msg/min)
   - type: split
   - type: label
-    text: realm database
+    text: realm counters
   - type: stepper
-    bind: dbCapacity
+    bind: reads
     min: 0
-    step: 128
-    caption: capacity (MB)
+    step: 10
+    caption: reads
   - type: stepper
-    bind: dbUsed
+    bind: writes
     min: 0
-    step: 16
-    caption: used (MB)
+    step: 10
+    caption: writes
   - type: stepper
-    bind: keys
+    bind: updates
     min: 0
-    step: 50
-    caption: keys stored
+    step: 10
+    caption: updates
+  - type: stepper
+    bind: errors
+    min: 0
+    step: 1
+    caption: errors
 
 behavior:
   init:
-    version: "0.9.3"
-    uptime: "128"
-    clients: "3"
+    version: "0.1.6"
+    uptime: "1"
+    keys: "294"
     load: "3"
     rate: "40"
-    dbCapacity: "1024"
-    dbUsed: "412"
-    keys: "1730"
+    reads: "1"
+    writes: "101"
+    updates: "147"
+    errors: "0"

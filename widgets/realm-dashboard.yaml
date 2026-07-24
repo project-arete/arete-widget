@@ -1,9 +1,11 @@
 # Realm Dashboard — consumer of cp:padi.test.realm.info (dev-namespace TEST
 # CP on cp.padi.io). The user-perspective exploration of "About the realm":
-# what the realm publishes about itself.
+# what the realm publishes about itself. Property set (2026-07-24) tracks what
+# CNS actually exposes: version, uptime, keys, a msg-rate, a busyness gauge,
+# and the real cumulative counters (reads/writes/updates/errors).
 widget: realm-dashboard
 title: Realm Dashboard
-description: About the realm, from the realm itself - version, uptime, how busy it is, and the capacity of the realm database. Prototype consumer of cp:padi.test.realm.info.
+description: About the realm, from the realm itself - version, uptime, keys held, how busy it is, and the realm's read/write/update/error counters. Consumer of cp:padi.test.realm.info.
 icon: "📊"
 color: "#2196f3"
 
@@ -21,8 +23,8 @@ view:
     bind: uptime
     caption: uptime (hours)
   - type: value
-    bind: clients
-    caption: connected clients
+    bind: keys
+    caption: keys held
   - type: meter
     bind: load
     min: 0
@@ -33,13 +35,16 @@ view:
     caption: message rate (msg/min)
   - type: split
   - type: label
-    text: realm database
+    text: realm counters
   - type: value
-    bind: dbCapacity
-    caption: capacity (MB)
+    bind: reads
+    caption: reads
   - type: value
-    bind: dbUsed
-    caption: used (MB)
+    bind: writes
+    caption: writes
   - type: value
-    bind: keys
-    caption: keys stored
+    bind: updates
+    caption: updates
+  - type: value
+    bind: errors
+    caption: errors

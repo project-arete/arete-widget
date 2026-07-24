@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
-    <title>Arete Widget</title>
+    <title>Arete Widgets</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="widget.css" />
     <link rel="stylesheet" href="compose.css" />
@@ -15,8 +15,8 @@
       <div class="brand">
         <img class="logo" src="logo.png" alt="Arete" />
         <div>
-          <h1>Arete Widget</h1>
-          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v66</span></p>
+          <h1>Arete Widgets</h1>
+          <p class="subtitle">virtual widgets on a CNS/CP realm · <span id="appVersion" title="release version (from package.json)"></span><span id="uiVersion" title="internal UI build stamp"> · UI v70</span></p>
         </div>
       </div>
       <div class="realm-ind" id="realmInd" hidden>
@@ -174,54 +174,63 @@
       <div class="panel" id="panel-config" role="tabpanel" aria-labelledby="tab-config" hidden>
         <section class="card">
           <h2>Connection</h2>
-          <form id="connectForm" class="grid">
-            <label>Protocol
-              <select id="protocol">
-                <option value="wss:">wss:</option>
-                <option value="ws:">ws:</option>
-              </select>
-            </label>
-            <label>Host
-              <input id="host" type="text" placeholder="my.realm.example.com" autocomplete="off" />
-            </label>
-            <label>Port
-              <input id="port" type="number" value="443" min="1" max="65535" />
-            </label>
-            <label>Username
-              <input id="username" type="text" autocomplete="off" />
-            </label>
-            <label>Password
-              <input id="password" type="password" autocomplete="off" />
-            </label>
-            <label>System name
-              <input id="systemName" type="text" placeholder="Arete Widget" autocomplete="off" />
-            </label>
-            <label class="checkbox">
-              <input id="allowSelfSigned" type="checkbox" />
-              <span>Allow self-signed TLS <small>(insecure — for self-signed control planes)</small></span>
-            </label>
-            <label class="checkbox">
-              <input id="rememberPassword" type="checkbox" />
-              <span>Remember password <small id="rememberNote">(encrypted by the OS keychain)</small></span>
-            </label>
-            <label class="checkbox">
-              <input id="autoConnect" type="checkbox" />
-              <span>Connect automatically on launch</span>
-            </label>
-            <label class="checkbox">
-              <input id="themeLight" type="checkbox" />
-              <span>Light theme</span>
-            </label>
-            <label style="grid-column: 1 / -1">Widget library URL
-              <input id="libraryUrl" type="text" autocomplete="off"
-                     placeholder="https://project-arete.github.io/widget-library" />
-            </label>
-
+          <form id="connectForm" class="conn-form">
+            <div class="conn-main">
+              <div class="conn-left">
+                <label><span>Host <small>(▾ shows past hosts)</small></span>
+                  <input id="host" type="text" placeholder="my.realm.example.com" autocomplete="off" list="hostList" />
+                  <datalist id="hostList"></datalist>
+                </label>
+                <label>Realm token
+                  <input id="token" type="password" placeholder="paste the token issued for this realm" autocomplete="off" />
+                </label>
+                <label><span>System name <small>(this app’s name in the realm)</small></span>
+                  <input id="systemName" type="text" placeholder="Arete Widgets" autocomplete="off" />
+                </label>
+              </div>
+              <div class="conn-right">
+                <label>Protocol
+                  <select id="protocol">
+                    <option value="wss:">wss:</option>
+                    <option value="ws:">ws:</option>
+                  </select>
+                </label>
+                <label>Port
+                  <input id="port" type="number" value="443" min="1" max="65535" />
+                </label>
+              </div>
+            </div>
+            <div class="conn-checks">
+              <label class="checkbox">
+                <input id="allowSelfSigned" type="checkbox" />
+                <span>Allow self-signed TLS <small>(insecure — only for hosts you trust)</small></span>
+              </label>
+              <label class="checkbox">
+                <input id="rememberToken" type="checkbox" />
+                <span>Remember token <small id="rememberNote">(encrypted by the OS keychain)</small></span>
+              </label>
+              <label class="checkbox">
+                <input id="autoConnect" type="checkbox" />
+                <span>Connect automatically on launch</span>
+              </label>
+            </div>
             <div class="actions">
               <button type="submit" id="connectBtn" class="primary">Connect</button>
               <button type="button" id="disconnectBtn" disabled>Disconnect</button>
             </div>
           </form>
+        </section>
+
+        <section class="card">
+          <h2>Preferences</h2>
+          <label class="checkbox">
+            <input id="themeLight" type="checkbox" />
+            <span>Light mode</span>
+          </label>
+          <label style="display:block; margin-top:12px">Widget library URL
+            <input id="libraryUrl" type="text" autocomplete="off"
+                   placeholder="https://project-arete.github.io/widget-library" />
+          </label>
         </section>
 
         <section class="card note">

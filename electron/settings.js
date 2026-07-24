@@ -1,13 +1,15 @@
 // electron/settings.js
 // ---------------------------------------------------------------------------
 // settings.json in Electron's userData dir. Carries the Config tab state:
-//   lastConnect { protocol, host, port, username, allowSelfSigned }
-//   rememberPassword (bool) + passwordEnc (base64 of safeStorage ciphertext)
+//   lastConnect { protocol, host, port, allowSelfSigned }
+//   rememberToken (bool) + tokenEnc (base64 of safeStorage ciphertext)
 //   autoConnect (bool)
 //   systemName (the System name this app registers on the realm)
-// The password is ONLY stored when rememberPassword is on AND the OS provides
-// encryption (macOS Keychain / Windows DPAPI / Linux keyring via safeStorage).
-// Unchecking "remember" wipes the stored ciphertext.
+// The per-realm token is ONLY stored when rememberToken is on AND the OS
+// provides encryption (macOS Keychain / Windows DPAPI / Linux keyring via
+// safeStorage). Unchecking "remember" wipes the stored ciphertext.
+// encrypt/decryptPassword are generic safeStorage string helpers (named for
+// their original use); they now carry the token.
 // ---------------------------------------------------------------------------
 
 import { app, safeStorage } from 'electron';

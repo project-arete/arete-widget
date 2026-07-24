@@ -105,8 +105,7 @@ export class AreteService extends EventEmitter {
    * @param {string} opts.protocol 'wss:' or 'ws:'
    * @param {string} opts.host     hostname WITHOUT credentials, e.g. 'my.realm.example.com'
    * @param {number} opts.port     e.g. 443
-   * @param {string} [opts.username]
-   * @param {string} [opts.password]
+   * @param {string} [opts.token] per-realm Bearer token (sent as Authorization: Bearer)
    * @param {boolean} [opts.allowSelfSigned] disable TLS verification (self-signed hosts)
    * @param {number} [opts.timeout] connect timeout ms (default 8000)
    */
@@ -117,8 +116,7 @@ export class AreteService extends EventEmitter {
       protocol = 'wss:',
       host,
       port = 443,
-      username = '',
-      password = '',
+      token = '',
       allowSelfSigned = false,
       timeout = 8000,
       systemName = '',
@@ -138,24 +136,18 @@ export class AreteService extends EventEmitter {
       this.#log('warn', 'TLS verification DISABLED for this connection (self-signed host).');
     }
 
-    // --- Auth: the Node SDK has no username/password parameter. Credentials are
-    // carried as HTTP Basic userinfo in the WebSocket URL; the `ws` library turns
-    // userinfo into an Authorization: Basic header automatically. We fold the
-    // (URL-encoded) credentials into the host the SDK will use to build the URI.
-    let hostForSdk = host;
-    if (username || password) {
-      const u = encodeURIComponent(username);
-      const p = encodeURIComponent(password);
-      hostForSdk = `${u}:${p}@${host}`;
-    }
-
+    // --- Auth: a per-realm BEARER token issued by aretehosting. The SDK is
+    // patched (scripts/patch-sdk.js PATCH 4) to send it as
+    // `Authorization: Bearer <token>` on the WebSocket handshake — this
+    // replaces the old HTTP-Basic username/password userinfo. The host is now
+    // used verbatim (no credentials folded into the URL).
     this.#lastError = null;
     this.#setState('connecting');
     this.#log('info', `Connecting to ${protocol}//${host}:${port} ...`);
 
     const Client = await loadClient();
 
-    this.#client = new Client({ protocol, host: hostForSdk, port });
+    this.#client = new Client({ protocol, host, port, token });
 
     // Resolves when the first update (initial cache snapshot) has been merged —
     // the SDK emits 'open' exactly then. Registering/renaming before that loses

@@ -32,7 +32,7 @@ const fs = require('fs');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
-const DEFAULT_SYSTEM_NAME = "Arete Widget";
+const DEFAULT_SYSTEM_NAME = "Arete Widgets";
 const DEFAULT_LIBRARY_URL = 'https://project-arete.github.io/widget-library';
 
 // ---- personalized default system name -------------------------------------
@@ -163,7 +163,7 @@ function createMainWindow() {
     ...bounds,
     minWidth: 760,
     minHeight: 540,
-    title: 'Arete Widget',
+    title: 'Arete Widgets',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -392,7 +392,7 @@ app.whenReady().then(async () => {
   // Clean native About panel (macOS menu → About Arete Widget; also the
   // Help → About on other platforms) with the real release version.
   app.setAboutPanelOptions({
-    applicationName: 'Arete Widget',
+    applicationName: 'Arete Widgets',
     applicationVersion: app.getVersion(),
     credits: 'Virtual widgets on a CNS/CP realm · project-arete',
   });
@@ -428,12 +428,12 @@ app.whenReady().then(async () => {
       protocol: last.protocol || env.ARETE_PROTOCOL || 'wss:',
       host: last.host ?? (env.ARETE_HOST || ''),
       port: Number(last.port || env.ARETE_PORT || 443),
-      username: last.username ?? (env.ARETE_USER || ''),
-      password: s.rememberPassword ? settings.decryptPassword(s.passwordEnc) : (env.ARETE_PASS || ''),
+      token: s.rememberToken ? settings.decryptPassword(s.tokenEnc) : (env.ARETE_TOKEN || ''),
       allowSelfSigned: last.allowSelfSigned ?? ((env.ARETE_ALLOW_SELF_SIGNED ?? '0') === '1'),
-      rememberPassword: !!s.rememberPassword,
+      hosts: s.hosts || [],
+      rememberToken: !!s.rememberToken,
       autoConnect: !!s.autoConnect,
-      canRememberPassword: settings.canEncrypt(),
+      canRememberToken: settings.canEncrypt(),
       systemName: s.systemName || env.ARETE_SYSTEM_NAME || defaultSystemName(),
       theme: s.theme || 'dark',
       userWidgetsDir,
@@ -456,23 +456,32 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('arete:connect', async (_evt, opts) => {
-    const { rememberPassword, autoConnect, systemName, ...conn } = opts || {};
+    const { rememberToken, autoConnect, systemName, ...conn } = opts || {};
     const st = await service.connect({
       ...conn,
       systemName: (systemName || '').trim() || defaultSystemName(),
     });
-    // Persist config AFTER a successful connect.
+    // Remember this host (successful connects only, so typos never pile up).
+    // Stores connection shape — protocol/port/TLS — never the token.
+    const prev = settings.readSettings();
+    const entry = {
+      host: conn.host, protocol: conn.protocol, port: conn.port,
+      allowSelfSigned: !!conn.allowSelfSigned, lastUsed: Date.now(),
+    };
+    const hosts = [entry, ...(prev.hosts || []).filter((h) => h.host !== conn.host)].slice(0, 10);
+    // Persist config AFTER a successful connect. The token is stored ONLY when
+    // "remember" is on AND the OS keychain is available (safeStorage).
     settings.writeSettings({
+      hosts,
       lastConnect: {
         protocol: conn.protocol,
         host: conn.host,
         port: conn.port,
-        username: conn.username,
         allowSelfSigned: !!conn.allowSelfSigned,
       },
       systemName: (systemName || '').trim() || defaultSystemName(),
-      rememberPassword: !!rememberPassword,
-      passwordEnc: rememberPassword ? settings.encryptPassword(conn.password) : null,
+      rememberToken: !!rememberToken,
+      tokenEnc: rememberToken ? settings.encryptPassword(conn.token) : null,
       autoConnect: !!autoConnect,
     });
     await manager.attachAll();

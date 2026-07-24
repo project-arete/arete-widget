@@ -96,6 +96,32 @@ const PATCHES = [
       '    if (e !== undefined && e.wasClean && this._userClosed) return;',
     ].join('\n'),
   },
+  {
+    // PATCH 4a — accept a Bearer token option on the Client.
+    name: 'bearer token option',
+    file: 'index.js',
+    marker: 'arete:bearer-token-opt',
+    find: '      port: options.port || location.port,',
+    replace: [
+      '      port: options.port || location.port,',
+      "      token: options.token || '', // arete:bearer-token-opt",
+    ].join('\n'),
+  },
+  {
+    // PATCH 4b — send the token as `Authorization: Bearer <token>` on the ws
+    // handshake (per-realm token auth from aretehosting; replaces HTTP-Basic
+    // userinfo). ws accepts a `headers` option; browsers ignore it (no token
+    // path there yet).
+    name: 'bearer token header',
+    file: 'index.js',
+    marker: 'arete:bearer-token-hdr',
+    find: '      this.#socket = new WebSocket(uri);',
+    replace: [
+      '      // arete:bearer-token-hdr',
+      "      const __auth = this.#options.token ? { headers: { Authorization: 'Bearer ' + this.#options.token } } : undefined;",
+      '      this.#socket = __auth ? new WebSocket(uri, __auth) : new WebSocket(uri);',
+    ].join('\n'),
+  },
 ];
 
 let applied = 0;

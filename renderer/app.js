@@ -16,9 +16,9 @@ const els = {
   log: $('log'),
   s: { state: $('s-state'), open: $('s-open'), version: $('s-version'), system: $('s-system'), attached: $('s-attached'), error: $('s-error') },
   form: $('connectForm'),
-  protocol: $('protocol'), host: $('host'), port: $('port'),
-  username: $('username'), password: $('password'), systemName: $('systemName'),
-  allowSelfSigned: $('allowSelfSigned'), rememberPassword: $('rememberPassword'),
+  protocol: $('protocol'), host: $('host'), port: $('port'), hostList: $('hostList'),
+  token: $('token'), systemName: $('systemName'),
+  allowSelfSigned: $('allowSelfSigned'), rememberToken: $('rememberToken'),
   rememberNote: $('rememberNote'), autoConnect: $('autoConnect'),
   connectBtn: $('connectBtn'), disconnectBtn: $('disconnectBtn'),
   clearLogBtn: $('clearLogBtn'), cpLink: $('cpLink'),
@@ -637,6 +637,25 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// ---- Host history (past successful connects, recalled by host) ----
+let knownHosts = [];
+function refreshHosts(hosts) {
+  knownHosts = hosts || [];
+  if (!els.hostList) return;
+  els.hostList.innerHTML = knownHosts
+    .map((h) => `<option value="${String(h.host).replace(/"/g, '&quot;')}"></option>`)
+    .join('');
+}
+// Picking (or exactly typing) a remembered host recalls its protocol/port/TLS —
+// never the token (that's per-realm and stored separately).
+function applyKnownHost(value) {
+  const h = knownHosts.find((x) => x.host === value);
+  if (!h) return;
+  if (h.protocol) els.protocol.value = h.protocol;
+  if (h.port) els.port.value = h.port;
+  els.allowSelfSigned.checked = !!h.allowSelfSigned;
+}
+
 // ---- Connect ----
 async function doConnect(auto) {
   els.connectBtn.disabled = true;
@@ -644,15 +663,17 @@ async function doConnect(auto) {
     protocol: els.protocol.value,
     host: els.host.value.trim(),
     port: Number(els.port.value),
-    username: els.username.value.trim(),
-    password: els.password.value,
+    token: els.token.value.trim(),
     allowSelfSigned: els.allowSelfSigned.checked,
     systemName: els.systemName.value.trim(),
-    rememberPassword: els.rememberPassword.checked,
+    rememberToken: els.rememberToken.checked,
     autoConnect: els.autoConnect.checked,
   };
   try {
     await window.arete.connect(opts);
+    // main recorded this host on success — refresh the dropdown
+    const d = await window.arete.getDefaults();
+    refreshHosts(d.hosts);
     activateTab('panel-widgets');
   } catch (err) {
     logLine({ level: 'error', message: String(err.message || err) });
@@ -672,11 +693,14 @@ els.systemNameNote.addEventListener('click', (e) => {
 });
 // Keep the note in sync as the field is edited (so it reflects what will register).
 els.systemName.addEventListener('input', () => {
-  const name = els.systemName.value.trim() || els.systemName.placeholder || 'Arete Widget';
+  const name = els.systemName.value.trim() || els.systemName.placeholder || 'Arete Widgets';
   els.systemNameNote.innerHTML = `nodes register under “${esc(name)}” · <a href="#" id="changeSystemName">change</a>`;
 });
 
 els.form.addEventListener('submit', (e) => { e.preventDefault(); doConnect(false); });
+// picking (or exactly typing) a remembered host recalls its protocol/port/TLS
+els.host.addEventListener('input', () => applyKnownHost(els.host.value.trim()));
+els.host.addEventListener('change', () => applyKnownHost(els.host.value.trim()));
 els.disconnectBtn.addEventListener('click', () => window.arete.disconnect());
 els.clearLogBtn.addEventListener('click', () => (els.log.innerHTML = ''));
 els.cpLink.addEventListener('click', (e) => { e.preventDefault(); window.arete.openExternal(els.cpLink.dataset.url); });
@@ -719,14 +743,14 @@ async function init() {
   els.protocol.value = d.protocol;
   els.host.value = d.host;
   els.port.value = d.port;
-  els.username.value = d.username;
-  els.password.value = d.password;
+  refreshHosts(d.hosts);
+  els.token.value = d.token;
   els.systemName.value = d.systemName;
   els.allowSelfSigned.checked = !!d.allowSelfSigned;
-  els.rememberPassword.checked = !!d.rememberPassword;
+  els.rememberToken.checked = !!d.rememberToken;
   els.autoConnect.checked = !!d.autoConnect;
-  if (!d.canRememberPassword) {
-    els.rememberPassword.disabled = true;
+  if (!d.canRememberToken) {
+    els.rememberToken.disabled = true;
     els.rememberNote.textContent = '(no OS keychain available)';
   }
   const light = d.theme === 'light';

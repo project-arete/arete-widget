@@ -192,3 +192,12 @@ body.light .state-pill.ok  { color: #0ca30c; border-color: rgba(12,163,12,.45); 
 body.light .state-pill.bad { color: #d03b3b; border-color: rgba(208,59,59,.45); background: rgba(208,59,59,.07); }
 body.light .state-pill.mid { color: #c98500; border-color: rgba(201,133,0,.45); background: rgba(201,133,0,.07); }
 body.light .realm-lbl { color: #8b95a3; }
+
+/* Config connection form — shared identical layout across Widget & Monitor.
+   Left stack = the important fields (Host, Token, System name); Protocol+Port
+   (rarely changed) sit to the right of Host; checkboxes below. */
+.conn-form { display: block; }
+.conn-main { display: grid; grid-template-columns: 1fr 170px; gap: 12px 16px; align-items: start; }
+.conn-left, .conn-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.conn-checks { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.conn-form .actions { margin-top: 16px; }
