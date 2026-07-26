@@ -6,6 +6,12 @@
 > users. Heads-up: the installers are **not signed**, so your computer will
 > show a one-time security warning; the guide walks you through it.
 
+> **🤖 Building your own CNS/CP app?**
+> **[ARETE.md](https://github.com/project-arete/sdk/blob/main/ARETE.md)** teaches
+> any AI coding assistant how to build on CNS/CP correctly — point yours at
+> `https://raw.githubusercontent.com/project-arete/sdk/main/ARETE.md`.
+
+
 
 Create **virtual widgets** from plain YAML files and let them live on a CNS/CP
 realm. Each widget declares Connection Profile capabilities (validated against
