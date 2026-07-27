@@ -2,12 +2,19 @@
 // ---------------------------------------------------------------------------
 // settings.json in Electron's userData dir. Carries the Config tab state:
 //   lastConnect { protocol, host, port, allowSelfSigned }
-//   rememberToken (bool) + tokenEnc (base64 of safeStorage ciphertext)
+//   rememberToken (bool) + tokenEnc (base64 of safeStorage ciphertext —
+//     legacy last-used token, kept as a fallback)
+//   hosts [{ host, protocol, port, allowSelfSigned, lastUsed, tokenEnc? }]
+//     — each past realm may carry its OWN encrypted token (per-realm tokens)
 //   autoConnect (bool)
 //   systemName (the System name this app registers on the realm)
-// The per-realm token is ONLY stored when rememberToken is on AND the OS
-// provides encryption (macOS Keychain / Windows DPAPI / Linux keyring via
-// safeStorage). Unchecking "remember" wipes the stored ciphertext.
+// Tokens are ONLY stored when rememberToken is on AND the OS provides
+// encryption (macOS Keychain / Windows DPAPI / Linux keyring via
+// safeStorage). Unchecking "remember" wipes every stored ciphertext
+// immediately (main's saveSettings handler), not just at the next connect.
+// The top-level tokenEnc is legacy: main migrates it into its own host entry
+// on startup and then clears it, so a token is never recalled for a realm it
+// was not issued for.
 // encrypt/decryptPassword are generic safeStorage string helpers (named for
 // their original use); they now carry the token.
 // ---------------------------------------------------------------------------

@@ -122,6 +122,69 @@ const PATCHES = [
       '      this.#socket = __auth ? new WebSocket(uri, __auth) : new WebSocket(uri);',
     ].join('\n'),
   },
+  {
+    // PATCH 5a — a close WE requested is ALWAYS final. The previous rule
+    // (final only when wasClean && userClosed) left zombies: a 401-rejected
+    // upgrade closes wasClean=false, so a client discarded after a failed
+    // connect fell through to the retry loop and retried forever.
+    // NOTE: applies on top of patch 3's output (patches run in order).
+    name: 'user close is final',
+    file: 'index.js',
+    // marker must NOT be a prefix of another patch's marker, or a failed
+    // apply here would be masked by the guard patch below.
+    marker: 'arete:final-close-any',
+    find: '    if (e !== undefined && e.wasClean && this._userClosed) return;',
+    replace: [
+      '    // arete:final-close-any — ANY close we requested is final (a rejected',
+      '    // upgrade closes unclean; without this, discarded clients retry',
+      '    // forever). Server-side closes, clean or not, still retry below.',
+      '    if (this._userClosed) return;',
+    ].join('\n'),
+  },
+  {
+    // PATCH 5b — a retry timer queued before close() must not resurrect the
+    // client after the app has discarded it.
+    name: 'retry timer close guard',
+    file: 'index.js',
+    marker: 'arete:final-close-guard',
+    find: '    setTimeout(() => {\n      this.open();\n    }, RETRY);',
+    replace: [
+      '    setTimeout(() => {',
+      '      if (!this._userClosed) this.open(); // arete:final-close-guard',
+      '    }, RETRY);',
+    ].join('\n'),
+  },
+  {
+    // PATCH 5c — #onerror used to call this.close(), which (since patch 3)
+    // marks _userClosed and would now make every transient socket error
+    // final. Tear the socket down directly instead so errors still retry.
+    name: 'error teardown without user-close',
+    file: 'index.js',
+    marker: 'arete:error-teardown',
+    find: '    this.emit(\'error\', new Error(E_SOCKET));\n    this.close();',
+    replace: [
+      "    this.emit('error', new Error(E_SOCKET));",
+      '    // arete:error-teardown — close the socket WITHOUT marking user-closed,',
+      '    // so transient socket errors still reach the retry loop and resume.',
+      '    if (this.#socket !== undefined) { try { this.#socket.close(); } catch (_) { /* ignore */ } }',
+    ].join('\n'),
+  },
+  {
+    // PATCH 6 — surface the REAL socket error. ws reports a rejected upgrade
+    // as "Unexpected server response: 401", but #onerror discarded it and
+    // emitted a generic "Socket not open" — which made token-protected
+    // realms (401) indistinguishable from network failures in the app log.
+    name: 'real error message',
+    file: 'index.js',
+    marker: 'arete:error-detail',
+    find: "    this.emit('error', new Error(E_SOCKET));",
+    replace: [
+      '    // arete:error-detail — pass the underlying reason through (e.g.',
+      '    // "Unexpected server response: 401" from a token-protected realm).',
+      '    const __why = e && (e.message || (e.error && e.error.message));',
+      "    this.emit('error', new Error(__why || E_SOCKET));",
+    ].join('\n'),
+  },
 ];
 
 let applied = 0;

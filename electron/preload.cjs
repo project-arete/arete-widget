@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('arete', {
   // connection/config
   getDefaults: () => ipcRenderer.invoke('arete:getDefaults'),
   connect: (opts) => ipcRenderer.invoke('arete:connect', opts),
+  recallHost: (host) => ipcRenderer.invoke('arete:recallHost', host),
   disconnect: () => ipcRenderer.invoke('arete:disconnect'),
   getStatus: () => ipcRenderer.invoke('arete:getStatus'),
   setAutoConnect: (on) => ipcRenderer.invoke('arete:setAutoConnect', on),

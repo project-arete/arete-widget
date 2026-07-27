@@ -421,6 +421,41 @@ app.whenReady().then(async () => {
   });
 
   // ---- IPC: connection/config ----
+  // Per-realm tokens live in the host-history entries (tokenEnc, keychain-
+  // encrypted via safeStorage). The legacy top-level tokenEnc remains a
+  // fallback for installs from before tokens were per-realm.
+  const hostToken = (s, host) => {
+    if (!s.rememberToken || !host) return '';
+    const h = (s.hosts || []).find((x) => x.host === host);
+    return h && h.tokenEnc ? settings.decryptPassword(h.tokenEnc) : '';
+  };
+  // Hosts as the renderer may see them: ciphertext stripped, hasToken hint added.
+  const publicHosts = (s) =>
+    (s.hosts || []).map(({ tokenEnc, ...h }) => ({ ...h, hasToken: !!tokenEnc }));
+  // Never let ciphertext cross into the renderer, not even on a write's return.
+  const publicSettings = (s) => ({ ...s, tokenEnc: undefined, hosts: publicHosts(s) });
+  // Wipe every stored token: the legacy top-level one AND each host entry's.
+  const wipeAllTokens = () => settings.writeSettings({
+    tokenEnc: null,
+    hosts: (settings.readSettings().hosts || []).map(({ tokenEnc, ...h }) => h),
+  });
+
+  // MIGRATION (one-time, pre-per-realm installs): the old top-level token
+  // belonged to whichever realm was connected last. Move it into THAT host's
+  // entry and drop it, so a token can never be recalled for a realm it was
+  // not issued for. Anything we cannot attribute to a host is discarded.
+  {
+    const s0 = settings.readSettings();
+    if (s0.tokenEnc) {
+      const lcHost = (s0.lastConnect || {}).host;
+      settings.writeSettings({
+        tokenEnc: null,
+        hosts: (s0.hosts || []).map((h) =>
+          h.host === lcHost && !h.tokenEnc ? { ...h, tokenEnc: s0.tokenEnc } : h),
+      });
+    }
+  }
+
   ipcMain.handle('arete:getDefaults', () => {
     const s = settings.readSettings();
     const last = s.lastConnect || {};
@@ -428,9 +463,9 @@ app.whenReady().then(async () => {
       protocol: last.protocol || env.ARETE_PROTOCOL || 'wss:',
       host: last.host ?? (env.ARETE_HOST || ''),
       port: Number(last.port || env.ARETE_PORT || 443),
-      token: s.rememberToken ? settings.decryptPassword(s.tokenEnc) : (env.ARETE_TOKEN || ''),
+      token: s.rememberToken ? hostToken(s, last.host) : (env.ARETE_TOKEN || ''),
       allowSelfSigned: last.allowSelfSigned ?? ((env.ARETE_ALLOW_SELF_SIGNED ?? '0') === '1'),
-      hosts: s.hosts || [],
+      hosts: publicHosts(s),
       rememberToken: !!s.rememberToken,
       autoConnect: !!s.autoConnect,
       canRememberToken: settings.canEncrypt(),
@@ -446,13 +481,16 @@ app.whenReady().then(async () => {
   // Generic preference persistence (theme, ...). A theme change is pushed to
   // every open faceplate window so they switch live with the main window.
   ipcMain.handle('arete:saveSettings', (_evt, patch) => {
+    // Turning "remember token" off wipes every stored token immediately —
+    // not only on the next connect (the user may never connect again).
+    if (patch && patch.rememberToken === false) wipeAllTokens();
     const next = settings.writeSettings(patch || {});
     if (patch && patch.theme) {
       for (const w of faceplates.values()) {
         if (!w.isDestroyed()) w.webContents.send('widget:theme', patch.theme);
       }
     }
-    return next;
+    return publicSettings(next);
   });
 
   ipcMain.handle('arete:connect', async (_evt, opts) => {
@@ -462,13 +500,21 @@ app.whenReady().then(async () => {
       systemName: (systemName || '').trim() || defaultSystemName(),
     });
     // Remember this host (successful connects only, so typos never pile up).
-    // Stores connection shape — protocol/port/TLS — never the token.
+    // Stores connection shape — protocol/port/TLS — plus, when "remember
+    // token" is on, this realm's OWN token (keychain-encrypted). An empty
+    // token on a successful connect drops any stale one for this host.
     const prev = settings.readSettings();
     const entry = {
       host: conn.host, protocol: conn.protocol, port: conn.port,
       allowSelfSigned: !!conn.allowSelfSigned, lastUsed: Date.now(),
     };
-    const hosts = [entry, ...(prev.hosts || []).filter((h) => h.host !== conn.host)].slice(0, 10);
+    if (rememberToken && conn.token) {
+      const enc = settings.encryptPassword(conn.token);
+      if (enc) entry.tokenEnc = enc;
+    }
+    let hosts = [entry, ...(prev.hosts || []).filter((h) => h.host !== conn.host)].slice(0, 10);
+    // Opting out of "remember token" wipes every stored per-realm token too.
+    if (!rememberToken) hosts = hosts.map(({ tokenEnc, ...h }) => h);
     // Persist config AFTER a successful connect. The token is stored ONLY when
     // "remember" is on AND the OS keychain is available (safeStorage).
     settings.writeSettings({
@@ -488,6 +534,20 @@ app.whenReady().then(async () => {
     return st;
   });
 
+  // Recall a past host's connection shape + its remembered token. The token
+  // is decrypted only here in main, on request for one named host — the
+  // renderer never receives other realms' tokens unasked.
+  ipcMain.handle('arete:recallHost', (_evt, host) => {
+    const s = settings.readSettings();
+    const h = (s.hosts || []).find((x) => x.host === host);
+    if (!h) return null;
+    return {
+      host: h.host, protocol: h.protocol, port: h.port,
+      allowSelfSigned: !!h.allowSelfSigned,
+      token: hostToken(s, host), hasToken: !!h.tokenEnc,
+    };
+  });
+
   ipcMain.handle('arete:disconnect', async () => {
     manager.detachAll();
     await service.disconnect();
@@ -497,7 +557,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('arete:getKeys', () => service.getKeys());
   ipcMain.handle('arete:getProfile', (_evt, name) => fetchProfile(name));
   ipcMain.handle('arete:openExternal', (_evt, url) => shell.openExternal(url));
-  ipcMain.handle('arete:setAutoConnect', (_evt, on) => settings.writeSettings({ autoConnect: !!on }));
+  ipcMain.handle('arete:setAutoConnect', (_evt, on) => publicSettings(settings.writeSettings({ autoConnect: !!on })));
 
   // ---- IPC: widgets ----
   ipcMain.handle('widget:defs', () => manager.listDefinitions());

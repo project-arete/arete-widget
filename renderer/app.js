@@ -643,17 +643,41 @@ function refreshHosts(hosts) {
   knownHosts = hosts || [];
   if (!els.hostList) return;
   els.hostList.innerHTML = knownHosts
-    .map((h) => `<option value="${String(h.host).replace(/"/g, '&quot;')}"></option>`)
+    .map((h) => `<option value="${String(h.host).replace(/"/g, '&quot;')}"${h.hasToken ? ' label="token remembered"' : ''}></option>`)
     .join('');
 }
-// Picking (or exactly typing) a remembered host recalls its protocol/port/TLS —
-// never the token (that's per-realm and stored separately).
-function applyKnownHost(value) {
+// Picking (or exactly typing) a remembered host recalls its protocol/port/TLS
+// AND its own remembered token (each realm's token lives in its history
+// entry, keychain-encrypted).
+// True while the token field holds a value WE put there (recalled/default) —
+// user input clears it. Only auto-filled tokens may be replaced or cleared on
+// a host switch; a token the user typed or pasted is NEVER silently wiped.
+let tokenAutoFilled = false;
+let recallSeq = 0; // guards against out-of-order async token recalls
+async function applyKnownHost(value) {
   const h = knownHosts.find((x) => x.host === value);
   if (!h) return;
   if (h.protocol) els.protocol.value = h.protocol;
   if (h.port) els.port.value = h.port;
   els.allowSelfSigned.checked = !!h.allowSelfSigned;
+  // Recall this realm's own remembered token. A token the USER entered is
+  // never overwritten or cleared — only auto-filled content is. Guarded by a
+  // sequence number so out-of-order recalls can't drop realm A's token into a
+  // form now pointing at realm B.
+  const seq = ++recallSeq;
+  try {
+    const r = await window.arete.recallHost(h.host);
+    if (seq !== recallSeq || els.host.value.trim() !== h.host) return; // superseded
+    const userOwned = !tokenAutoFilled && els.token.value !== '';
+    if (userOwned) return;
+    if (r && r.token) {
+      els.token.value = r.token;
+      tokenAutoFilled = true;
+    } else if (tokenAutoFilled) {
+      els.token.value = '';
+      tokenAutoFilled = false;
+    }
+  } catch (_) { /* keep whatever is typed */ }
 }
 
 // ---- Connect ----
@@ -671,12 +695,19 @@ async function doConnect(auto) {
   };
   try {
     await window.arete.connect(opts);
-    // main recorded this host on success — refresh the dropdown
+    // main recorded this host on success — refresh the dropdown. The token is
+    // now stored for this realm, so the field's content is ours again.
+    tokenAutoFilled = true;
     const d = await window.arete.getDefaults();
     refreshHosts(d.hosts);
     activateTab('panel-widgets');
   } catch (err) {
     logLine({ level: 'error', message: String(err.message || err) });
+    // Protected realms 401 the upgrade when no/invalid token is presented —
+    // say so when the field was empty instead of leaving a bare timeout.
+    if (!opts.token) {
+      logLine({ level: 'warn', message: 'No realm token was sent. If this realm is token-protected, paste its token in Config (check "Remember token" so auto-connect can use it).' });
+    }
     els.connectBtn.disabled = false;
     if (auto) activateTab('panel-config');
   }
@@ -701,6 +732,9 @@ els.form.addEventListener('submit', (e) => { e.preventDefault(); doConnect(false
 // picking (or exactly typing) a remembered host recalls its protocol/port/TLS
 els.host.addEventListener('input', () => applyKnownHost(els.host.value.trim()));
 els.host.addEventListener('change', () => applyKnownHost(els.host.value.trim()));
+// Any user edit of the token field makes its content user-owned (see
+// tokenAutoFilled) — auto-fill logic may no longer wipe it.
+els.token.addEventListener('input', () => { tokenAutoFilled = false; });
 els.disconnectBtn.addEventListener('click', () => window.arete.disconnect());
 els.clearLogBtn.addEventListener('click', () => (els.log.innerHTML = ''));
 els.cpLink.addEventListener('click', (e) => { e.preventDefault(); window.arete.openExternal(els.cpLink.dataset.url); });
@@ -731,6 +765,15 @@ els.libraryUrl.addEventListener('change', () => {
   window.arete.saveSettings({ libraryUrl: els.libraryUrl.value.trim() });
 });
 els.autoConnect.addEventListener('change', () => window.arete.setAutoConnect(els.autoConnect.checked));
+// Unchecking "Remember token" must take effect NOW (main wipes every stored
+// token), not merely at the next connect — the user may never connect again.
+els.rememberToken.addEventListener('change', async () => {
+  await window.arete.saveSettings({ rememberToken: els.rememberToken.checked });
+  if (!els.rememberToken.checked) {
+    const d = await window.arete.getDefaults();
+    refreshHosts(d.hosts); // drop the now-stale "token remembered" hints
+  }
+});
 els.themeLight.addEventListener('change', () => {
   const light = els.themeLight.checked;
   document.body.classList.toggle('light', light);
@@ -745,6 +788,7 @@ async function init() {
   els.port.value = d.port;
   refreshHosts(d.hosts);
   els.token.value = d.token;
+  tokenAutoFilled = !!d.token; // prefilled from settings = ours to replace
   els.systemName.value = d.systemName;
   els.allowSelfSigned.checked = !!d.allowSelfSigned;
   els.rememberToken.checked = !!d.rememberToken;
