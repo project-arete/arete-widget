@@ -350,6 +350,59 @@ export class AreteService extends EventEmitter {
     return this.#client.put(key, String(value));
   }
 
+  /**
+   * Retract a node from the realm: remove its subtree, so the declarations it
+   * made stop existing and the substrate severs any connections that depended
+   * on them. This is the counterpart of instantiate().
+   *
+   * Deliberately scoped to THIS system's own subtree — we never delete another
+   * system's data, even though the wire would currently allow it.
+   *
+   * Returns the number of keys that were removed (0 if there was nothing).
+   */
+  async retractNode(nodeId) {
+    if (!this.#client || !this.#client.isOpen()) {
+      throw new Error('Not connected.');
+    }
+    if (typeof nodeId !== 'string' || !nodeId) {
+      throw new Error('Refusing to retract without a node id.');
+    }
+
+    const system = this.#identity.system;
+    if (!system) throw new Error('No system identity; cannot retract.');
+
+    const prefix = `cns/${system}/nodes/${nodeId}`;
+    const before = Object.keys(this.#client.keys || {})
+      .filter((k) => k === prefix || k.startsWith(prefix + '/')).length;
+
+    // 'purge' removes a whole subtree. The SDK swallows server-side errors, so
+    // the result is verified against the key cache rather than trusted.
+    await this.#client.command('purge', prefix);
+
+    const gone = await this.#waitForRetraction(prefix, before);
+    this.#log(gone ? 'info' : 'warn',
+      gone
+        ? `Retracted node ${nodeId} from the realm (${before} key(s)).`
+        : `Retraction of node ${nodeId} was not confirmed by the realm.`);
+
+    if (!gone) throw new Error('The realm did not confirm the retraction.');
+    return before;
+  }
+
+  /** Poll the key cache until the subtree is gone (or we give up). */
+  async #waitForRetraction(prefix, before, timeoutMs = 6000) {
+    if (before === 0) return true;
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+      const remaining = Object.keys(this.#client?.keys || {})
+        .filter((k) => k === prefix || k.startsWith(prefix + '/')).length;
+      if (remaining === 0) return true;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return false;
+  }
+
   // Minimal stand-in for the SDK's Provider/Consumer handle (same get/put
   // surface) that issues NO registration command — used when the capability
   // already exists on the realm.

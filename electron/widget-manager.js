@@ -410,24 +410,64 @@ export class WidgetManager extends EventEmitter {
   }
 
   /** Forget an instance locally (its Node remains on the realm until cleaned up there). */
-  removeInstance(id) {
+  /**
+   * Remove a widget: retract its node from the realm, then forget it locally.
+   *
+   * The realm half happens FIRST and deliberately: if retraction fails we keep
+   * the instance, so the app never loses the only record of a node that still
+   * exists on the realm. Retracting a node with no realm presence (never
+   * attached, or already gone) succeeds trivially.
+   */
+  async removeInstance(id) {
     const inst = this.#instances.find((i) => i.id === id);
+    if (!inst) return;
+
+    if (inst.nodeId) {
+      try {
+        await this.#service.retractNode(inst.nodeId);
+      } catch (e) {
+        this.#log('error', `Could not remove "${inst.name}": ${e.message} — the widget was kept.`);
+        this.emit('instances', this.listInstances());
+        throw e;
+      }
+    }
+
     this.#live.delete(id);
     this.#instances = this.#instances.filter((i) => i.id !== id);
     this.#saveInstances();
-    if (inst) this.#log('info', `Widget "${inst.name}" removed from this app (realm node not deleted).`);
+    this.#log('info', `Widget "${inst.name}" removed and its realm node retracted.`);
     this.emit('instances', this.listInstances());
   }
 
-  /** Forget EVERY instance locally (realm nodes remain until cleaned up there). */
-  removeAllInstances() {
-    const count = this.#instances.length;
-    this.#live.clear();
-    this.#instances = [];
+  /**
+   * Remove EVERY instance, retracting each node from the realm. Instances whose
+   * retraction fails are kept, so the app never orphans a live realm node.
+   */
+  async removeAllInstances() {
+    const all = [...this.#instances];
+    const kept = [];
+    let removed = 0;
+
+    for (const inst of all) {
+      if (inst.nodeId) {
+        try {
+          await this.#service.retractNode(inst.nodeId);
+        } catch (e) {
+          this.#log('error', `Could not remove "${inst.name}": ${e.message} — the widget was kept.`);
+          kept.push(inst);
+          continue;
+        }
+      }
+      this.#live.delete(inst.id);
+      removed++;
+    }
+
+    this.#instances = kept;
     this.#saveInstances();
-    if (count) this.#log('info', `All ${count} widget(s) removed from this app (realm nodes not deleted).`);
+
+    if (removed) this.#log('info', `${removed} widget(s) removed and their realm nodes retracted.`);
     this.emit('instances', this.listInstances());
-    return count;
+    return removed;
   }
 
   // ------------------------------------------------------ attach / detach

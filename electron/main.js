@@ -569,27 +569,38 @@ app.whenReady().then(async () => {
   ipcMain.handle('widget:instances', () => manager.listInstances());
   ipcMain.handle('widget:add', (_evt, spec) => manager.addInstance(spec));
   ipcMain.handle('widget:update', (_evt, spec) => manager.updateInstance(spec));
-  ipcMain.handle('widget:remove', (_evt, id) => {
+  // Removal retracts the realm node first; if that fails the widget is kept,
+  // so we only forget its window position once removal actually happened.
+  ipcMain.handle('widget:remove', async (_evt, id) => {
     const fp = faceplates.get(id);
     if (fp && !fp.isDestroyed()) fp.close();
-    manager.removeInstance(id);
-    const map = readFpBounds(); // forget the removed widget's window spot too
+    try {
+      await manager.removeInstance(id);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+    const map = readFpBounds();
     if (map[id]) {
       delete map[id];
       writeFpBounds(map);
     }
+    return { ok: true };
   });
-  ipcMain.handle('widget:removeAll', () => {
-    const ids = manager.listInstances().map((i) => i.id);
+  ipcMain.handle('widget:removeAll', async () => {
+    const before = manager.listInstances().map((i) => i.id);
     for (const fp of faceplates.values()) {
       if (!fp.isDestroyed()) fp.close();
     }
-    const count = manager.removeAllInstances();
-    const map = readFpBounds(); // forget every removed widget's window spot
+    const count = await manager.removeAllInstances();
+    const stillHere = new Set(manager.listInstances().map((i) => i.id));
+
+    const map = readFpBounds();
     let dirty = false;
-    for (const id of ids) if (map[id]) { delete map[id]; dirty = true; }
+    for (const id of before) {
+      if (!stillHere.has(id) && map[id]) { delete map[id]; dirty = true; }
+    }
     if (dirty) writeFpBounds(map);
-    return count;
+    return { ok: stillHere.size === 0, count, kept: stillHere.size };
   });
   ipcMain.handle('widget:open', (_evt, id) => openFaceplate(id));
   ipcMain.handle('widget:action', (_evt, { id, property, value, connId }) =>

@@ -271,7 +271,7 @@ assert('widgetRemove called', window.__removed === 'instA');
   btn().click();
   assert('remove-all confirm shown', !!$('[data-ra-panel]'));
   assert('confirm counts the widgets', ($('[data-ra-panel] .menu-q')?.textContent || '').includes('1 widget'));
-  assert('confirm mentions realm nodes kept', ($('[data-ra-panel] .menu-note')?.textContent || '').includes('left as-is'));
+  assert('confirm says realm nodes are retracted', ($('[data-ra-panel] .menu-note')?.textContent || '').includes('retracts their nodes from the realm'));
   $('[data-ra-cancel]').click();
   assert('cancel hides the confirm', !$('[data-ra-panel]'));
   btn().click();
