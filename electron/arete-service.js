@@ -375,6 +375,16 @@ export class AreteService extends EventEmitter {
     const before = Object.keys(this.#client.keys || {})
       .filter((k) => k === prefix || k.startsWith(prefix + '/')).length;
 
+    // Absence from the key cache is only evidence if the cache is ALIVE. It
+    // can be blanked by an update carrying an empty object (the merge treats
+    // that as a reset), and a wiped cache looks exactly like "nothing to
+    // retract" — which would report success while the node lives on. Our own
+    // system record must be present for any read of this cache to mean
+    // anything.
+    if (!this.#client.keys || this.#client.keys[`cns/${system}/name`] === undefined) {
+      throw new Error('Realm state is not available right now — refusing to assume the node is gone.');
+    }
+
     // 'purge' removes a whole subtree. The SDK swallows server-side errors, so
     // the result is verified against the key cache rather than trusted.
     await this.#client.command('purge', prefix);
@@ -389,7 +399,26 @@ export class AreteService extends EventEmitter {
     return before;
   }
 
-  /** Poll the key cache until the subtree is gone (or we give up). */
+  /**
+   * TEST ONLY — remove this system's own record from the realm, putting the
+   * key cache into the state where realm truth is unverifiable. Used by
+   * scripts/test-retract.js to prove the guard in retractNode actually fires.
+   * There is no product reason to call this.
+   */
+  async retractSystemRecordForTest() {
+    if (!this.#client || !this.#client.isOpen()) throw new Error('Not connected.');
+    const system = this.#identity.system;
+    if (!system) throw new Error('No system identity.');
+    return this.#client.command('del', `cns/${system}/name`);
+  }
+
+  /**
+   * Poll the key cache until the subtree is gone (or we give up).
+   *
+   * `before === 0` means the node had no realm presence — never attached, or
+   * already retracted — which is a legitimate success. The caller has already
+   * established that the cache itself is alive, so that zero is trustworthy.
+   */
   async #waitForRetraction(prefix, before, timeoutMs = 6000) {
     if (before === 0) return true;
     const started = Date.now();

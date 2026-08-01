@@ -27,6 +27,7 @@
     "test:compose": "node scripts/test-compose.js",
     "test:compose-ui": "node scripts/test-compose-ui.js",
     "test:lease": "node scripts/test-lease.js",
+    "test:retract": "node scripts/test-retract.js",
     "test:compose-live": "node scripts/test-compose-live.js"
   },
   "dependencies": {
