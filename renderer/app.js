@@ -157,6 +157,31 @@ function contextsMatching(d, excludeCtxId) {
     .sort((a, b) => b.waiting - a.waiting || b.declarations - a.declarations || String(a.name).localeCompare(String(b.name)));
 }
 
+// Every OTHER context on the realm: no declaration of a compatible partner
+// role, so the broker cannot bind this widget there yet. Still a legitimate
+// destination — installing equipment in "Room 123" before anything it can
+// talk to exists is the normal case, and minting a second "Room 123" instead
+// of joining the real one is the mistake this list prevents.
+function contextsOther(d, excludeCtxId) {
+  const excluded = Array.isArray(excludeCtxId) ? excludeCtxId : (excludeCtxId ? [excludeCtxId] : []);
+  const matching = new Set(contextsMatching(d, excluded).map((c) => c.id));
+  return realmContexts()
+    .filter((c) => !excluded.includes(c.id) && !matching.has(c.id))
+    .map((c) => {
+      const decls = Object.values(c.roles).reduce((n, v) => n + v, 0);
+      return { ...c, summaryText: decls ? `${decls} declaration${decls === 1 ? '' : 's'}, none compatible` : 'no declarations yet' };
+    });
+}
+
+// Free-text match over a context's display name, its other observed names,
+// and its id — so "123" finds "Room 123" however the realm spells it.
+function ctxMatchesQuery(c, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  const hay = [c.name, ...(c.also || []), c.id].join(' ').toLowerCase();
+  return hay.includes(q);
+}
+
 // =========================================================================
 // The add / edit dialog
 // dlg is the ONLY dialog state: null (closed) or
@@ -241,6 +266,8 @@ function snapshotForm() {
   return {
     name: q('af-name') ? q('af-name').value : null,
     ctxName: q('af-ctxname') ? q('af-ctxname').value : null,
+    ctxSearch: q('af-ctxsearch') ? q('af-ctxsearch').value : null,
+    otherOpen: q('af-ctxother-wrap') ? q('af-ctxother-wrap').open : null,
     newChecked: q('af-ctx-new') ? q('af-ctx-new').checked : false,
     checkedIds: [...els.dlgBody.querySelectorAll('.af-ctx-box')].filter((b) => b.checked).map((b) => b.dataset.id),
     uncheckedIds: [...els.dlgBody.querySelectorAll('.af-ctx-box')].filter((b) => !b.checked).map((b) => b.dataset.id),
@@ -252,12 +279,15 @@ function restoreForm(snap) {
   const q = (id) => els.dlgBody.querySelector('#' + id);
   if (snap.name != null && q('af-name')) q('af-name').value = snap.name;
   if (snap.ctxName != null && q('af-ctxname')) q('af-ctxname').value = snap.ctxName;
+  if (snap.ctxSearch != null && q('af-ctxsearch')) q('af-ctxsearch').value = snap.ctxSearch;
+  if (snap.otherOpen != null && q('af-ctxother-wrap')) q('af-ctxother-wrap').open = snap.otherOpen;
   if (q('af-ctx-new')) q('af-ctx-new').checked = !!snap.newChecked;
   for (const b of els.dlgBody.querySelectorAll('.af-ctx-box')) {
     if (snap.checkedIds.includes(b.dataset.id)) b.checked = true;
     else if (snap.uncheckedIds.includes(b.dataset.id)) b.checked = false;
   }
   syncFormRows();
+  applyCtxFilter();
 }
 
 function renderDialog(preserve = false) {
@@ -307,22 +337,33 @@ function renderDialog(preserve = false) {
   // best match (unbound partners first) — a widget alone in a fresh context
   // binds nothing, and a prefilled context name made that accident silent.
   const defaultJoin = dlg.mode === 'create' && ctxs.length > 0;
+  const others = contextsOther(d, current.map((c) => c.id));
   const currentRows = current
-    .map((c) => `<label class="checkbox"><input type="checkbox" class="af-ctx-box af-ctx-cur" data-id="${esc(c.id)}" data-name="${esc(c.name)}" checked />
-      <span><strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> — current${current.length === 1 ? '' : ''}</span></label>`)
+    .map((c) => ctxRowHtml(c, 'af-ctx-cur', `<strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> — current`, true))
     .join('');
   const matchRows = ctxs
-    .map((c, i) => `<label class="checkbox"><input type="checkbox" class="af-ctx-box af-ctx-match" data-id="${esc(c.id)}" data-name="${esc(c.name)}" ${defaultJoin && i === 0 ? 'checked' : ''} />
-      <span>Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> (${esc(c.partnersText)})</span></label>`)
+    .map((c, i) => ctxRowHtml(c, 'af-ctx-match', `Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> (${esc(c.partnersText)})`, defaultJoin && i === 0))
     .join('');
+  const otherRows = others
+    .map((c) => ctxRowHtml(c, 'af-ctx-other', `Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> — ${esc(c.summaryText)}`, false))
+    .join('');
+  // No compatible partner anywhere is exactly the "new equipment in room 123"
+  // case, so open the other-contexts list rather than making them find it.
+  const otherOpen = ctxs.length === 0 && others.length > 0;
 
   els.dlgBody.innerHTML = `${summary}
     <label>Name <input type="text" id="af-name" value="${esc(inst ? inst.name : d.title)}" autocomplete="off" /></label>
     <div class="ctx-choice" id="af-ctxlist">
       <p class="muted-note">Contexts — the places this widget lives in. Connections only form inside a shared context; pick one or more.</p>
+      <label id="af-ctxsearch-row">Find a context <input type="search" id="af-ctxsearch" value="" placeholder="filter by name or id — e.g. 123" autocomplete="off" /></label>
+      <div id="af-ctxnohits" class="ctx-info" hidden>No context matches that search. Clear it, or create a new context below.</div>
       ${currentRows}
       <div id="af-ctxmatches">${matchRows}</div>
-      <div id="af-join-hint" class="ctx-info" ${ctxs.length ? 'hidden' : ''}>No realm context has a matching partner for this widget${connected ? '' : ' (not connected)'} — create a new context and let a partner join you instead.</div>
+      <div id="af-join-hint" class="ctx-info" ${ctxs.length ? 'hidden' : ''}>No realm context has a matching partner for this widget${connected ? '' : ' (not connected)'} — join an existing context below (the equipment can be in place before anything it binds to exists), or create a new one and let a partner join you.</div>
+      <details id="af-ctxother-wrap" ${otherOpen ? 'open' : ''} ${others.length ? '' : 'hidden'}>
+        <summary>Other contexts on the realm (<span id="af-ctxother-count">${others.length}</span>) — no compatible provider or consumer yet</summary>
+        <div id="af-ctxother">${otherRows}</div>
+      </details>
       <label class="checkbox"><input type="checkbox" id="af-ctx-new" ${defaultJoin || dlg.mode === 'edit' ? '' : 'checked'} /> <span>New context</span></label>
       <label id="af-ctxname-row">Context name <input type="text" id="af-ctxname" value="" placeholder="name the new matching space — required" autocomplete="off" /></label>
       <div id="af-ctxinfo-new" class="ctx-info">Creates a new matching space with id <span class="mono">${esc(pendingCtxId || '')}</span>.
@@ -336,6 +377,39 @@ function renderDialog(preserve = false) {
         : (connected ? 'Registers a Node under this app’s System.' : 'Connect first (Config tab).')}</span>
     </div>`;
   if (snap) restoreForm(snap); else syncFormRows();
+}
+
+// One context row. data-search carries every string the filter looks at, so
+// filtering is a cheap attribute read and never re-renders the list (which
+// would drop checked boxes and steal focus from the search field).
+function ctxRowHtml(c, cls, innerHtml, checked) {
+  const hay = [c.name, ...(c.also || []), c.id].join(' ');
+  return `<label class="checkbox ctx-row" data-search="${esc(hay.toLowerCase())}"><input type="checkbox" class="af-ctx-box ${cls}" data-id="${esc(c.id)}" data-name="${esc(c.name)}" ${checked ? 'checked' : ''} />
+      <span>${innerHtml}</span></label>`;
+}
+
+// Apply the search box to every group. A CHECKED row is never hidden — the
+// user must always be able to see what they are about to commit to, even if
+// it falls outside the current query.
+function applyCtxFilter() {
+  if (!dlg || dlg.step !== 2) return;
+  const box = els.dlgBody.querySelector('#af-ctxsearch');
+  if (!box) return;
+  const q = box.value.trim().toLowerCase();
+  let hits = 0; // rows the QUERY matched — a row kept on screen only because it
+                // is checked must not suppress the "nothing matched" note.
+  for (const row of els.dlgBody.querySelectorAll('.ctx-row')) {
+    const cb = row.querySelector('.af-ctx-box');
+    const hit = !q || (row.dataset.search || '').includes(q);
+    if (hit) hits++;
+    row.hidden = !(hit || (cb && cb.checked));
+  }
+  // With a query running, open the other-contexts group so hits inside it are
+  // not hidden behind a closed disclosure.
+  const wrap = els.dlgBody.querySelector('#af-ctxother-wrap');
+  if (wrap && q) wrap.open = true;
+  const nohits = els.dlgBody.querySelector('#af-ctxnohits');
+  if (nohits) nohits.hidden = !(q && hits === 0);
 }
 
 // Toggle the new-context rows to match the checkbox state.
@@ -352,22 +426,37 @@ function syncFormRows() {
 function refreshCtxOptions() {
   if (!dlg || dlg.step !== 2) return;
   const host = els.dlgBody.querySelector('#af-ctxmatches');
-  if (!host) return;
+  const otherHost = els.dlgBody.querySelector('#af-ctxother');
+  if (!host || !otherHost) return;
   const d = defs.find((x) => x.id === dlg.defId);
   const inst = dlg.mode === 'edit' ? instances.find((i) => i.id === dlg.instId) : null;
   const current = inst ? (inst.contexts || [{ id: inst.contextId, name: inst.contextName }]) : [];
   const ctxs = contextsMatching(d, current.map((c) => c.id));
+  const others = contextsOther(d, current.map((c) => c.id));
   const html = ctxs
-    .map((c) => `<label class="checkbox"><input type="checkbox" class="af-ctx-box af-ctx-match" data-id="${esc(c.id)}" data-name="${esc(c.name)}" />
-      <span>Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> (${esc(c.partnersText)})</span></label>`)
+    .map((c) => ctxRowHtml(c, 'af-ctx-match', `Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> (${esc(c.partnersText)})`, false))
     .join('');
-  if (host.dataset.rendered === html) return; // nothing changed — don't touch it
-  const checked = new Set([...host.querySelectorAll('.af-ctx-box')].filter((b) => b.checked).map((b) => b.dataset.id));
-  host.innerHTML = html;
-  host.dataset.rendered = html;
-  for (const b of host.querySelectorAll('.af-ctx-box')) if (checked.has(b.dataset.id)) b.checked = true;
+  const otherHtml = others
+    .map((c) => ctxRowHtml(c, 'af-ctx-other', `Join <strong>${esc(c.name)}</strong> <span class="mono">${esc(c.id.slice(0, 8))}…</span> — ${esc(c.summaryText)}`, false))
+    .join('');
+  // Re-render each group only when its markup actually changed, and carry the
+  // checked ids across — a value tick must never drop a pending choice.
+  const repaint = (el, next) => {
+    if (el.dataset.rendered === next) return;
+    const checked = new Set([...el.querySelectorAll('.af-ctx-box')].filter((b) => b.checked).map((b) => b.dataset.id));
+    el.innerHTML = next;
+    el.dataset.rendered = next;
+    for (const b of el.querySelectorAll('.af-ctx-box')) if (checked.has(b.dataset.id)) b.checked = true;
+  };
+  repaint(host, html);
+  repaint(otherHost, otherHtml);
   const hint = els.dlgBody.querySelector('#af-join-hint');
   if (hint) hint.hidden = ctxs.length > 0;
+  const wrap = els.dlgBody.querySelector('#af-ctxother-wrap');
+  if (wrap) wrap.hidden = others.length === 0;
+  const count = els.dlgBody.querySelector('#af-ctxother-count');
+  if (count) count.textContent = String(others.length);
+  applyCtxFilter(); // rows are new — re-apply the live query
 }
 
 async function submitDialog() {
@@ -445,9 +534,13 @@ els.dlgBody.addEventListener('input', (e) => {
     renderPickList(); // ONLY the list — the input keeps focus and its value
   }
   if (e.target.id === 'af-ctxname') e.target.classList.remove('field-missing');
+  if (e.target.id === 'af-ctxsearch') applyCtxFilter();
 });
 els.dlgBody.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'af-ctx-new') syncFormRows();
+  // Unchecking a row while a query hides it would leave it stranded on screen
+  // (checked rows are always shown) — re-run the filter so it drops away.
+  if (e.target && e.target.classList && e.target.classList.contains('af-ctx-box')) applyCtxFilter();
 });
 
 // =========================================================================

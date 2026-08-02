@@ -159,4 +159,19 @@ button.danger { color: var(--red); }
 }
 .ctx-info .mono { font-family: var(--mono); font-size: 11px; color: var(--text); word-break: break-all; }
 .ctx-info strong { color: var(--text); }
+/* Context search + the other-contexts disclosure each own a full row inside
+   the wrapping .ctx-choice flex. */
+#af-ctxsearch-row, #af-ctxother-wrap, #af-ctxnohits { flex: 1 1 100%; }
+#af-ctxother-wrap {
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  background: var(--panel-2);
+}
+#af-ctxother-wrap > summary {
+  cursor: pointer; font-size: 12.5px; color: var(--muted); list-style: revert;
+}
+#af-ctxother-wrap[open] > summary { margin-bottom: 8px; }
+#af-ctxother { display: flex; flex-direction: column; gap: 6px; max-height: 34vh; overflow: auto; }
+/* A filtered-out row must actually disappear: .dlg-body label sets display,
+   so [hidden] needs the higher-specificity rule to win. */
+.dlg-body label.ctx-row[hidden] { display: none; }
 .field-missing { outline: 2px solid var(--red); outline-offset: -1px; }

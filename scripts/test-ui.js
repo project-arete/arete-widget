@@ -134,10 +134,43 @@ assert('ctx name has no widget-title prefill', $('#af-ctxname').value === '');
 assert('name row hidden while new unchecked', $('#af-ctxname-row').hidden);
 assert('row flags the unbound partner', (matchBox?.parentElement.textContent || '').includes('unbound'));
 
+// 4b) OTHER contexts — every realm context with no compatible partner is
+// still joinable ("new equipment in room 123, nothing compatible there yet").
+// Ctx..02 holds only another consumer, so for the bulb (consumer) it is not a
+// match — it must appear here instead, and never in both groups.
+const otherBoxes = $$('.af-ctx-other');
+assert('non-matching realm context offered', otherBoxes.length === 1);
+assert('other row is the non-complementary ctx', otherBoxes[0]?.dataset.id === 'Ctx000000000000000002');
+assert('other row explains why', (otherBoxes[0]?.parentElement.textContent || '').includes('none compatible'));
+assert('no context appears in both groups',
+  !$$('.af-ctx-match').some((m) => otherBoxes.some((o) => o.dataset.id === m.dataset.id)));
+assert('other group collapsed while a match exists', $('#af-ctxother-wrap')?.open === false);
+assert('other group counts its rows', $('#af-ctxother-count')?.textContent === '1');
+
+// 4c) the search box filters every group at once, by name or id
+const ctxSearch = $("#af-ctxsearch");
+assert("context search box present", !!ctxSearch);
+ctxSearch.value = '41-B';
+fire(ctxSearch, 'input');
+assert('search reveals the other-contexts group', $('#af-ctxother-wrap').open === true);
+assert('search keeps the hit visible', otherBoxes[0].parentElement.hidden === false);
+assert('a CHECKED row is never hidden by the filter', $('.af-ctx-match').parentElement.hidden === false);
+ctxSearch.value = 'Ctx000000000000000002';
+fire(ctxSearch, 'input');
+assert('search matches on context id too', otherBoxes[0].parentElement.hidden === false);
+ctxSearch.value = 'zzzz-no-such-context';
+fire(ctxSearch, 'input');
+assert('unmatched rows are hidden', otherBoxes[0].parentElement.hidden === true);
+assert('no-hits note shown', $('#af-ctxnohits')?.hidden === false);
+ctxSearch.value = '';
+fire(ctxSearch, 'input');
+assert('clearing the search restores rows', otherBoxes[0].parentElement.hidden === false && $('#af-ctxnohits').hidden === true);
+
 // 6) checked state survives live keys pushes
 for (const cb of subs.keys) cb({ ...KEYS, 'cns/S1/nodes/N1/contexts/Ctx000000000000000001/provider/padi.light/properties/sOut': '1' });
 for (const cb of subs.keys) cb({ ...KEYS });
 assert('checked state survives keys pushes', $('.af-ctx-match')?.checked === true);
+assert('other-context rows survive keys pushes', $$('.af-ctx-other').length === 1);
 
 // 7) create
 $('#af-create').click();
