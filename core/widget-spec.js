@@ -1,7 +1,7 @@
 // core/widget-spec.js
 // ---------------------------------------------------------------------------
 // PORTABLE (no Electron, no Node APIs). Validates a parsed widget definition
-// against CP profiles fetched from the registry (cp.padi.io), and produces a
+// against CP profiles fetched from the registry (cp.cnscp.io), and produces a
 // serializable "model" the rest of the app (main process, renderer, any future
 // mobile shell) consumes.
 //
@@ -11,7 +11,7 @@
 //   title: Virtual Bulb
 //   description: ...
 //   capabilities:
-//     - profile: padi.light         # MUST resolve from cp.padi.io/profiles/<name>
+//     - profile: padi.light         # MUST resolve from cp.cnscp.io/<name>
 //       role: consumer              # provider | consumer
 //   view:                           # faceplate, list of primitives
 //     - { type: lamp,   bind: sOut, on: "1" }
@@ -38,26 +38,58 @@ export const PRIMITIVES = ['lamp', 'toggle', 'value', 'label', 'field', 'meter',
 export const INTERACTIVE = ['toggle', 'field', 'meter', 'options', 'date', 'stepper'];
 
 /**
- * Extract the property map from a registry profile JSON (latest version).
- * The registry encodes per-property flags by KEY PRESENCE (value is null):
- *  - "server" present  -> the SERVER (provider) side writes this property;
- *    absent -> the client (consumer) writes it.
- *  - "propagate" present -> writes to this property are propagated to all
- *    active connections; absent -> the value stays on the node's capability
- *    and NEVER reaches connections (peers cannot see it).
- *  - "required" present -> the property is required.
- * Top-level "server"/"client" strings describe what each end IS in the use
- * case the CP was designed for (e.g. server: "Landlord", client: "Tenant");
- * they surface as roles.provider / roles.consumer so UIs can phrase the role
- * choice concretely.
- * @param {object} profileJson raw JSON from cp.padi.io/profiles/<name>
- * @returns {{title:string, roles:{provider:string, consumer:string}, props:Object<string,{writer:'server'|'client', desc:string, propagate:boolean, required:boolean}>}|null}
+ * Extract the property map from a Profile, as the resolver's tool shape:
+ *   { name, version, status, title, roles:{provider,consumer},
+ *     properties:{ <name>:{ role:'provider'|'consumer', propagate, mandatory, description } } }
+ * `role:'provider'` is what the 2022 registry's `"server" in prop` meant, so
+ * `writer:'server'|'client'` maps across one-for-one.
+ *  - propagate -> writes to this property are propagated to all active
+ *    connections; otherwise the value stays on the node's capability and
+ *    NEVER reaches connections (peers cannot see it).
+ *  - mandatory -> the property is required.
+ * `roles.provider` / `roles.consumer` describe what each end IS in the use case
+ * the CP was designed for (e.g. "Landlord", "Tenant"), so UIs can phrase the
+ * role choice concretely.
+ *
+ * The older 2022 document (`versions[].properties` with flags by key presence)
+ * is still read, for the app's own `local.*` prototype Profiles and for saved
+ * fixtures. There the LAST version is used; nothing else is ever chosen by
+ * position: a Profile from the registry is always one version's contract.
+ *
+ * @param {object} profile a tool-shape contract (or a 2022 document)
+ * @returns {{title:string, version:(number|null), status:string, roles:{provider:string, consumer:string}, props:Object<string,{writer:'server'|'client', desc:string, propagate:boolean, required:boolean}>}|null}
  */
-export function parseProfile(profileJson) {
-  if (!profileJson || !Array.isArray(profileJson.versions) || !profileJson.versions.length) {
-    return null;
+export function parseProfile(profile) {
+  if (!profile || typeof profile !== 'object') return null;
+
+  // Tool shape (2026 registry, via cp-resolver).
+  if (profile.properties && typeof profile.properties === 'object' && !Array.isArray(profile.properties)) {
+    const props = {};
+    for (const name of Object.keys(profile.properties)) {
+      const pr = profile.properties[name] || {};
+      props[name] = {
+        writer: pr.role === 'provider' ? 'server' : 'client',
+        desc: pr.description || '',
+        propagate: !!pr.propagate,
+        required: !!pr.mandatory,
+      };
+    }
+    const r = profile.roles || {};
+    return {
+      title: profile.title || '',
+      version: Number.isInteger(profile.version) ? profile.version : null,
+      status: profile.status || '',
+      roles: {
+        provider: typeof r.provider === 'string' ? r.provider.trim() : '',
+        consumer: typeof r.consumer === 'string' ? r.consumer.trim() : '',
+      },
+      props,
+    };
   }
-  const latest = profileJson.versions[profileJson.versions.length - 1] || {};
+
+  // 2022 document.
+  if (!Array.isArray(profile.versions) || !profile.versions.length) return null;
+  const latest = profile.versions[profile.versions.length - 1] || {};
   const props = {};
   for (const pr of latest.properties || []) {
     if (!pr || !pr.name) continue;
@@ -69,10 +101,26 @@ export function parseProfile(profileJson) {
     };
   }
   const roles = {
-    provider: typeof profileJson.server === 'string' ? profileJson.server.trim() : '',
-    consumer: typeof profileJson.client === 'string' ? profileJson.client.trim() : '',
+    provider: typeof profile.server === 'string' ? profile.server.trim() : '',
+    consumer: typeof profile.client === 'string' ? profile.client.trim() : '',
   };
-  return { title: profileJson.title || '', roles, props };
+  return { title: profile.title || '', version: null, status: '', roles, props };
+}
+
+/**
+ * Why a Profile could not be used, in words, from what the lookup reported.
+ * A lookup that fails hands back { __unresolved: <kind> } in place of the
+ * Profile; anything else that is not a Profile means "not registered".
+ */
+export function whyProfileRefused(name, value) {
+  const kind = value && typeof value === 'object' && typeof value.__unresolved === 'string' ? value.__unresolved : 'not registered';
+  switch (kind) {
+    case 'registry unavailable': return `Profile "${name}" could not be checked: the CP registry is unreachable right now — refusing it until it can be.`;
+    case 'nothing published': return `Profile "${name}" has no published version in the CP registry — refusing it.`;
+    case 'deprecated': return `Profile "${name}" has only Deprecated versions in the CP registry — refusing it for a new widget.`;
+    case 'no such version': return `Profile "${name}": that version is not in the CP registry — refusing it.`;
+    default: return `Profile "${name}" is NOT in the CP registry (cp.cnscp.io/${name}) — refusing it.`;
+  }
 }
 
 /** Does `role` write `prop` under this profile? provider↔server, consumer↔client. */
@@ -83,8 +131,10 @@ function roleWrites(role, propInfo) {
 /**
  * Validate a parsed widget definition.
  * @param {object} raw parsed YAML (plain object)
- * @param {Object<string, object|null>} profileJsons map profile name -> raw
- *   registry JSON (null/undefined = not in registry / fetch failed)
+ * @param {Object<string, object|null>} profileJsons map profile name -> the
+ *   Profile (tool shape), or { __unresolved: <why> } / null when it could not be
+ *   had. The version is the caller's: the highest published one for a new
+ *   definition, or the version the realm recorded for a running widget.
  * @returns {{ok:boolean, errors:string[], model:object|null}}
  *   model (serializable) = {
  *     id, title, description,
@@ -159,10 +209,10 @@ export function validateDefinition(raw, profileJsons) {
     seen.add(key);
     const parsed = parseProfile(profileJsons ? profileJsons[profile] : null);
     if (!parsed) {
-      e(`Profile "${profile}" is NOT in the CP registry (cp.padi.io/profiles/${profile}) — refusing it.`);
+      e(whyProfileRefused(profile, profileJsons ? profileJsons[profile] : null));
       continue;
     }
-    capabilities.push({ profile, role, title: parsed.title, roles: parsed.roles, props: parsed.props });
+    capabilities.push({ profile, role, title: parsed.title, roles: parsed.roles, props: parsed.props, version: parsed.version, status: parsed.status });
   }
 
   // ---- bind resolution: bare property names must be unambiguous ----

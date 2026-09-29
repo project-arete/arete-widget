@@ -1,0 +1,17 @@
+HTTP/2 200 
+date: Tue, 29 Sep 2026 19:00:59 GMT
+content-type: application/cp+json; profile="2026"; charset=utf-8
+content-length: 337
+cache-control: no-cache
+etag: "padi.test.claude-demo-1d-spec2026"
+vary: Accept
+access-control-allow-origin: *
+access-control-expose-headers: etag, content-digest, x-cp-status, x-cp-grandfathered, x-cp-surface, deprecation, sunset, link
+x-envoy-upstream-service-time: 5
+server: cloudflare
+cf-cache-status: DYNAMIC
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=dLO2RlcFbu%2BD0a6C38vcLDeo1mSj9yorjJHTZevWO4aKPLSUMG79lk1NW2AKosKR8gWLsZjWKn%2BCUR2sPN46Vz0wTSQz5zji6QFFBqH5BU4p50jw4n42X8qA7%2Fjdag%3D%3D"}]}
+cf-ray: a42d3bdec880ab19-ATL
+alt-svc: h3=":443"; ma=86400
+

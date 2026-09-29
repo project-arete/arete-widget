@@ -1,0 +1,19 @@
+HTTP/2 200 
+date: Tue, 29 Sep 2026 19:00:57 GMT
+content-type: application/cp+json; profile="2026"; charset=utf-8
+content-length: 1668
+x-cp-status: deprecated
+cache-control: public, max-age=31536000, immutable
+etag: "cd139caf7faf0368ab195d8e7115d5343f8d1dba34261b2cc422a29606c48bbe-spec2026"
+content-digest: sha-256=:fzMNfLahAnzCC6eEnFAR1KxgVwP2aOPSu1vgP08I748=:
+vary: Accept
+access-control-allow-origin: *
+access-control-expose-headers: etag, content-digest, x-cp-status, x-cp-grandfathered, x-cp-surface, deprecation, sunset, link
+x-envoy-upstream-service-time: 7
+server: cloudflare
+cf-cache-status: DYNAMIC
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=LJtCOJteSUY4GSk494oUKRWSbQrEBXGo7esOWq1kdcX4tCVWuaa2vDkpiK2lZNmbhpDF9a1u8ANUitrrUilPGP9ofUw593AMxoZYIF9kkHsiKxmEFaIGJdou6mor5A%3D%3D"}]}
+cf-ray: a42d3bd60da55b6e-ATL
+alt-svc: h3=":443"; ma=86400
+

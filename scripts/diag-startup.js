@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { installSystemIdPatch } from '../electron/arete-system-id.js';
 import { AreteService } from '../electron/arete-service.js';
 import { WidgetManager } from '../electron/widget-manager.js';
+import { fetchProfile as registryFetch, listProfiles as registryList } from './lib/registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -40,8 +41,7 @@ async function fetchProfile(name) {
       return json;
     } catch (_) { profileCache.set(name, null); return null; }
   }
-  const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), { headers: { accept: 'application/json' } }).catch(() => null);
-  const json = res && res.ok ? await res.json() : null;
+  const json = await registryFetch(name);
   profileCache.set(name, json);
   return json;
 }

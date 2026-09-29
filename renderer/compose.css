@@ -191,6 +191,7 @@ button.danger { color: #e2635a; }
 .cmp-pk-row .pn { font-family: ui-monospace, Menlo, monospace; color: var(--text); }
 .cmp-pk-row .pt { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmp-pk-row .pc { color: var(--muted); font-size: 11px; }
+.cmp-pk-row .pc.dim { font-style: italic; opacity: .8; }
 .cmp-pk-prev {
   margin: 2px 4px 8px;
   padding: 8px;

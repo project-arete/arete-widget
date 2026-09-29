@@ -8,7 +8,7 @@
 //
 // Definition files: *.yaml / *.yml in one or more widget dirs (the app ships
 // widgets/ and also scans a per-user dir so users can add widgets without
-// touching the app bundle). A definition whose CP is not in the cp.padi.io
+// touching the app bundle). A definition whose CP is not in the cp.cnscp.io
 // registry FAILS validation and cannot be instantiated (project hard rule).
 //
 // An INSTANCE = one virtual widget: a Node (+ Context) under this app's
@@ -74,7 +74,8 @@ export class WidgetManager extends EventEmitter {
    * @param {string} [deps.userDir] the user's own local definitions (highest precedence)
    * @param {string} [deps.libraryCacheDir] where fetched online-library files are cached
    * @param {string} [deps.libraryUrl] base URL of the online catalog ('' disables)
-   * @param {(name:string)=>Promise<object|null>} deps.fetchProfile registry fetch (cached)
+   * @param {(name:string, version?:number)=>Promise<object|null>} deps.fetchProfile registry lookup: the
+   *   Profile's contract, or { __unresolved: why }. Without a version, the highest published one.
    */
   constructor({ service, dataDir, bundledDir, userDir, libraryCacheDir, libraryUrl, fetchProfile }) {
     super();
@@ -207,6 +208,7 @@ export class WidgetManager extends EventEmitter {
           title: res.model ? res.model.title : id,
           description: res.model ? res.model.description : '',
           model: res.model,
+          raw, // kept so a running widget can be re-checked at the version the realm recorded
         });
       }
     }
@@ -482,18 +484,60 @@ export class WidgetManager extends EventEmitter {
       capabilities: def.model.capabilities.map((c) => ({ profile: c.profile, role: c.role })),
     });
     inst.systemId = systemId;
-    this.#live.set(inst.id, { caps, capsByCtx, pending: {}, state: {}, connections: 0, rttProbes: {}, rttTimes: {} });
+    const live = { caps, capsByCtx, pending: {}, state: {}, connections: 0, rttProbes: {}, rttTimes: {}, model: def.model };
+    this.#live.set(inst.id, live);
+    live.model = await this.#modelAtRecorded(inst, def, systemId);
 
     // First-ever attach: issue the definition's init puts.
     if (!inst.initDone) {
-      for (const prop in def.model.behavior.init) {
-        await this.#put(inst, def.model, prop, def.model.behavior.init[prop]);
+      for (const prop in live.model.behavior.init) {
+        await this.#put(inst, live.model, prop, live.model.behavior.init[prop]);
       }
       inst.initDone = true;
       this.#saveInstances();
     }
     // Converge immediately against whatever the realm looks like right now.
     this.#processInstance(inst, this.#lastKeys);
+  }
+
+  /**
+   * The model a RUNNING widget is checked against. A definition is validated
+   * against the current Profile version when it is loaded, but the realm
+   * records its own version when the capability is declared, and that is the
+   * contract the peers on the wire follow. When the two are the same (the
+   * usual case) the loaded model stands; when they differ, the definition is
+   * re-validated against the recorded version's contract, so a widget already
+   * running at v2 keeps v2 when v3 is published later, and one pinned to a
+   * Deprecated version is checked against that version, not the newest.
+   */
+  async #modelAtRecorded(inst, def, systemId) {
+    const model = def.model;
+    if (!def.raw) return model;
+    const keys = this.#service.getKeys ? this.#service.getKeys() : this.#lastKeys;
+    const pinned = {};
+    let differs = false;
+    for (const c of model.capabilities) {
+      let rec = null;
+      for (const ctx of inst.contexts || []) {
+        const k = `cns/${systemId}/nodes/${inst.nodeId}/contexts/${ctx.id}/${c.role}/${c.profile}/version`;
+        const n = parseInt(keys[k], 10);
+        if (Number.isInteger(n)) { rec = n; break; }
+      }
+      if (rec === null || rec === c.version || c.version === null) {
+        pinned[c.profile] = pinned[c.profile] || (await this.#fetchProfile(c.profile, c.version === null ? undefined : c.version));
+        continue;
+      }
+      differs = true;
+      pinned[c.profile] = await this.#fetchProfile(c.profile, rec);
+    }
+    if (!differs) return model;
+    const res = validateDefinition(def.raw, pinned);
+    if (!res.ok) {
+      this.#log('warn', `Widget "${inst.name}": the realm recorded a different Profile version than the one it was validated against, and the definition does not validate against it (${res.errors[0] || 'unknown'}) — keeping the loaded contract.`);
+      return model;
+    }
+    this.#log('info', `Widget "${inst.name}": checked against the Profile version(s) the realm recorded (${res.model.capabilities.map((c) => `${c.profile}:${c.version}`).join(', ')}).`);
+    return res.model;
   }
 
   /** (Re-)attach every stored instance — call after each successful connect. */
@@ -526,10 +570,11 @@ export class WidgetManager extends EventEmitter {
     const def = this.#defs.get(inst.widgetId);
     if (!live || !def || !def.ok || !inst.systemId) return;
 
-    const { state, connections, perConn } = deriveState(keys, inst, def.model);
+    const model = live.model || def.model;
+    const { state, connections, perConn } = deriveState(keys, inst, model);
     reconcilePending(state, live.pending, perConn);
-    const peers = this.#peersFor(inst, def.model, keys);
-    const rttChanged = this.#rttCollect(live, def.model, perConn);
+    const peers = this.#peersFor(inst, model, keys);
+    const rttChanged = this.#rttCollect(live, model, perConn);
 
     const changed =
       rttChanged ||
@@ -544,17 +589,17 @@ export class WidgetManager extends EventEmitter {
 
     // Auto-actualize: converge on the declared rules (perConn feeds
     // aggregate rules; reply rules produce connection-addressed actions).
-    const actions = computeActions(def.model, state, live.pending, perConn);
+    const actions = computeActions(model, state, live.pending, perConn);
     for (const a of actions) {
       if (a.connId) {
         live.pending[a.connId + '|' + a.property] = String(a.value);
-        this.#putConn(inst, def.model, a.property, a.value, a.connId).catch((e) =>
+        this.#putConn(inst, model, a.property, a.value, a.connId).catch((e) =>
           this.#log('error', `Reply put failed for "${inst.name}".${a.property}: ${e.message || e}`)
         );
         this.#log('info', `⚙ ${inst.name}: ${a.property} → "${a.value}" (reply on ${a.connId}).`);
         continue;
       }
-      this.#put(inst, def.model, a.property, a.value).catch((e) =>
+      this.#put(inst, model, a.property, a.value).catch((e) =>
         this.#log('error', `Auto-actualize put failed for "${inst.name}".${a.property}: ${e.message || e}`)
       );
       this.#log('info', `⚙ ${inst.name}: ${a.property} → "${a.value}" (rule).`);
@@ -680,9 +725,10 @@ export class WidgetManager extends EventEmitter {
     if (!inst) throw new Error('Unknown widget instance.');
     const def = this.#defs.get(inst.widgetId);
     if (!def || !def.ok) throw new Error('Widget definition unavailable.');
-    if (connId) await this.#putConn(inst, def.model, prop, value, connId);
-    else await this.#put(inst, def.model, prop, value);
     const live = this.#live.get(instanceId);
+    const model = (live && live.model) || def.model;
+    if (connId) await this.#putConn(inst, model, prop, value, connId);
+    else await this.#put(inst, model, prop, value);
     // Optimistic push so the faceplate reacts instantly; the echo confirms.
     this.emit('state', {
       id: instanceId,

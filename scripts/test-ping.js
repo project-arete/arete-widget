@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { installSystemIdPatch } from '../electron/arete-system-id.js';
 import { AreteService } from '../electron/arete-service.js';
 import { WidgetManager } from '../electron/widget-manager.js';
+import { fetchProfile as registryFetch, listProfiles as registryList } from './lib/registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -38,8 +39,7 @@ const service = new AreteService();
 const profileCache = new Map();
 async function fetchProfile(name) {
   if (profileCache.has(name)) return profileCache.get(name);
-  const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), { headers: { accept: 'application/json' } }).catch(() => null);
-  const json = res && res.ok ? await res.json() : null;
+  const json = await registryFetch(name);
   profileCache.set(name, json);
   return json;
 }
@@ -56,7 +56,7 @@ async function waitFor(desc, fn, ms = 90000, step = 500) {
 
 let code = 1;
 try {
-  console.log('1) Validating definitions (incl. ping pair) against cp.padi.io ...');
+  console.log('1) Validating definitions (incl. ping pair) against cp.cnscp.io ...');
   const defs = await manager.loadDefinitions();
   const bad = defs.filter((d) => !d.ok);
   if (bad.length) throw new Error('Invalid definitions: ' + bad.map((d) => d.id + ': ' + d.errors[0]).join(' | '));

@@ -1,7 +1,7 @@
 // scripts/test-spec.js
 // Offline unit tests for the portable core: widget-spec validation and the
 // behavior engine. Uses a FIXTURE copy of the padi.light registry JSON (shape
-// verified against cp.padi.io) so this runs with no network.
+// verified against the registry) so this runs with no network.
 
 import assert from 'node:assert';
 import fs from 'node:fs';
@@ -15,7 +15,7 @@ import { deriveState, computeActions, reconcilePending } from '../core/behavior-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
-// Fixture: padi.light as served by cp.padi.io (server-key props = provider side).
+// Fixture: padi.light as the 2022 registry served it (server-key props = provider side).
 const PADI_LIGHT = {
   name: 'padi.light',
   title: 'Simple light control profile',
@@ -295,7 +295,7 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
 
 // ---- addressed reply rules (cp:padi.ping) ----
 {
-  // Fixture mirrors the REAL cp.padi.io registry entry for padi.ping.
+  // Fixture mirrors the REAL registry entry for padi.ping.
   const PADI_PING = {
     name: 'padi.ping',
     title: 'Simple connection ping',
@@ -382,7 +382,7 @@ for (const f of ['bulb.yaml', 'switch.yaml']) {
 
 // ---- gated rules (gate/is/else — cp:padi.lease.basic gating cp:padi.light) ----
 {
-  // Fixture mirrors the REAL cp.padi.io registry entry for padi.lease.basic.
+  // Fixture mirrors the REAL registry entry for padi.lease.basic.
   const PADI_LEASE = {
     name: 'padi.lease.basic',
     title: 'Simple leasing profile',

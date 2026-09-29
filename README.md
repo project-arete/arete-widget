@@ -15,7 +15,7 @@
 
 Create **virtual widgets** from plain YAML files and let them live on a CNS/CP
 realm. Each widget declares Connection Profile capabilities (validated against
-the [cp.padi.io](https://cp.padi.io) registry — an unregistered CP is refused),
+the [cp.cnscp.io](https://cp.cnscp.io) registry — an unregistered CP is refused),
 renders a **faceplate window** in lieu of the physical device, and can
 **auto-actualize**: declarative rules like *"when `sOut` changes, set `cState`"*
 make the widget behave like a real, working device.
@@ -52,7 +52,7 @@ widget: bulb                  # id slug
 title: Virtual Bulb
 description: A light being controlled.
 capabilities:
-  - profile: padi.light       # must exist at cp.padi.io/profiles/<name>
+  - profile: padi.light       # must be published at cp.cnscp.io/<name>
     role: consumer            # provider | consumer
 view:                         # faceplate, top to bottom
   - { type: lamp,   bind: sOut, on: "1" }      # glows when sOut == "1"

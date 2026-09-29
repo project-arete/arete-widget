@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('arete', {
 
   // live realm data
   getKeys: () => ipcRenderer.invoke('arete:getKeys'),
-  getProfile: (name) => ipcRenderer.invoke('arete:getProfile', name),
+  getProfile: (name, version) => ipcRenderer.invoke('arete:getProfile', name, version),
   onKeys: sub('arete:keys'),
   onLog: sub('arete:log'),
   onStatus: sub('arete:status'),
@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('arete', {
   composeReadDef: (id) => ipcRenderer.invoke('compose:readDef', id),
   composeFaceplateHtml: () => ipcRenderer.invoke('compose:faceplateHtml'),
   composeProfileIndex: (refresh) => ipcRenderer.invoke('compose:profileIndex', refresh),
+  composeProfileContract: (name) => ipcRenderer.invoke('compose:profileContract', name),
   composeGoLive: (spec) => ipcRenderer.invoke('compose:goLive', spec),
   composeLiveAction: (payload) => ipcRenderer.invoke('compose:liveAction', payload),
   composeLiveStop: () => ipcRenderer.invoke('compose:liveStop'),

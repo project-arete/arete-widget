@@ -1,5 +1,5 @@
 # Realm Dashboard — consumer of cp:padi.test.realm.info (dev-namespace TEST
-# CP on cp.padi.io). The user-perspective exploration of "About the realm":
+# CP on cp.cnscp.io). The user-perspective exploration of "About the realm":
 # what the realm publishes about itself. Property set (2026-07-24) tracks what
 # CNS actually exposes: version, uptime, keys, a msg-rate, a busyness gauge,
 # and the real cumulative counters (reads/writes/updates/errors).

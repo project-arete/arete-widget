@@ -1,0 +1,17 @@
+HTTP/2 200 
+date: Tue, 29 Sep 2026 19:00:57 GMT
+content-type: application/cp+json; profile="2026"; charset=utf-8
+content-length: 567
+cache-control: no-cache
+etag: "padi.lighting-1d.2p-spec2026"
+vary: Accept
+access-control-allow-origin: *
+access-control-expose-headers: etag, content-digest, x-cp-status, x-cp-grandfathered, x-cp-surface, deprecation, sunset, link
+x-envoy-upstream-service-time: 5
+server: cloudflare
+cf-cache-status: DYNAMIC
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=pbRVO%2FGke1ULFffRuChVU22JIuK6IT0BhZ8I0O4UYD%2Fp0dgCcU0iZGFP8BWLykupVSEhEpwsD4WHqqMSQMkDU8fNW0igHOZ1QsPxCYy6Ys0xXF2OjU2XIfz1%2B02SXw%3D%3D"}]}
+cf-ray: a42d3bd488e353bc-ATL
+alt-svc: h3=":443"; ma=86400
+

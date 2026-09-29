@@ -22,6 +22,7 @@ import { AreteService } from '../electron/arete-service.js';
 import { WidgetManager } from '../electron/widget-manager.js';
 import { ComposeRunner } from '../electron/compose-runner.js';
 import { validateDefinition, orderDefinition } from '../core/widget-spec.js';
+import { fetchProfile as registryFetch, listProfiles as registryList } from './lib/registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -47,8 +48,7 @@ const profileCache = new Map();
 async function fetchProfile(name) {
   if (profileCache.has(name)) return profileCache.get(name);
   try {
-    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), { headers: { accept: 'application/json' } });
-    const json = res.ok ? await res.json() : null;
+    const json = await registryFetch(name);
     profileCache.set(name, json);
     return json;
   } catch (_) {

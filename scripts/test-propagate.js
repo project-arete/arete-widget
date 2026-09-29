@@ -24,29 +24,20 @@ import { fileURLToPath } from 'node:url';
 import { installSystemIdPatch } from '../electron/arete-system-id.js';
 import { AreteService } from '../electron/arete-service.js';
 import { WidgetManager } from '../electron/widget-manager.js';
+import { fetchProfile as registryFetch } from './lib/registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 const CP = 'padi.test.propagate';
-const profile = await (async () => {
-  try {
-    const res = await fetch('https://cp.padi.io/profiles/' + CP, {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(15000),
-    });
-    return res.ok ? await res.json() : null;
-  } catch (_) {
-    return null;
-  }
-})();
-if (!profile || !Array.isArray(profile.versions)) {
+const profile = await registryFetch(CP);
+if (!profile || !profile.properties) {
   console.log(`⏭  ${CP} is not in the registry yet — register it (rig/propagate/cp-${CP}.json), then re-run.`);
   process.exit(0);
 }
 console.log(`Registry has ${CP}. Flags:`);
-for (const p of profile.versions.at(-1).properties) {
-  console.log(`   ${p.name.padEnd(9)} ${'server' in p ? 'server' : 'client'}  propagate=${'propagate' in p}`);
+for (const [name, p] of Object.entries(profile.properties)) {
+  console.log(`   ${name.padEnd(9)} ${p.role === 'provider' ? 'server' : 'client'}  propagate=${!!p.propagate}`);
 }
 
 // Stable identity: every run reuses ONE realm system ("Propagate Experiment")
@@ -73,10 +64,7 @@ const profileCache = new Map([[CP, profile]]);
 async function fetchProfile(name) {
   if (profileCache.has(name)) return profileCache.get(name);
   try {
-    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
-      headers: { accept: 'application/json' },
-    });
-    const json = res.ok ? await res.json() : null;
+    const json = await registryFetch(name);
     profileCache.set(name, json);
     return json;
   } catch (_) {

@@ -2,7 +2,7 @@
 # Property names carry their PURPOSE; the registry's server/propagate flags
 # carry direction and reach. bulletin is posted to everyone; draft never
 # leaves this node; ping is echoed back by receivers.
-# NOTE: invalid until padi.test.propagate is registered at cp.padi.io (by design).
+# NOTE: invalid until padi.test.propagate is registered at cp.cnscp.io (by design).
 widget: propagate-sender
 title: Propagate Sender
 description: Provider side of the propagate test rig - posts a bulletin (propagated), keeps a draft (not propagated), pings receivers, and shows what comes back (and what cannot).

@@ -450,6 +450,17 @@
   let peekLast = {};
 
   function parseProfileJson(json) {
+    // Tool shape (cp.cnscp.io via the main process): properties keyed by name,
+    // role 'provider' = the side that writes it.
+    if (json && json.properties && typeof json.properties === 'object' && !Array.isArray(json.properties)) {
+      return {
+        props: Object.keys(json.properties).map((n) => {
+          const p = json.properties[n] || {};
+          return { name: n, writer: p.role === 'provider' ? 'provider' : 'consumer', propagate: !!p.propagate, desc: p.description || '' };
+        }),
+      };
+    }
+    // 2022 document (the app's own local.* prototype Profiles).
     if (!json || !Array.isArray(json.versions) || !json.versions.length) return null;
     const latest = json.versions[json.versions.length - 1] || {};
     return {
@@ -466,8 +477,18 @@
     if (profCache.has(name)) return;
     profCache.set(name, 'pending');
     (window.arete.getProfile ? window.arete.getProfile(name) : Promise.resolve(null))
-      .then((json) => { profCache.set(name, parseProfileJson(json)); refreshCards(); })
-      .catch(() => profCache.set(name, null));
+      .then((json) => {
+        // Unreachable is never remembered: try again shortly. Anything else
+        // that isn't a Profile (not registered, nothing published) is a plain miss.
+        if (json && json.__unresolved === 'registry unavailable') {
+          profCache.delete(name);
+          setTimeout(refreshCards, 5000);
+          return;
+        }
+        profCache.set(name, parseProfileJson(json));
+        refreshCards();
+      })
+      .catch(() => { profCache.delete(name); });
   }
 
   // Render one card's content. `last` is that card's own previous values —
@@ -501,7 +522,7 @@
         isPinned ? '<button type="button" class="gh-close" title="Unpin (Esc closes all)">✕</button>' : ''}</div>
       <div class="gh-sub">${esc(info.fromName)} ⇢ ${esc(info.toName)} · in “${esc(info.ctxName)}”</div>
       ${rowHtml}
-      <div class="gh-foot">${prof === 'pending' ? 'resolving cp.padi.io…' : '⇢ provider writes · ⇠ consumer writes'}${anyAddressed ? ' · ° addressed (not broadcast)' : ''}<br/>${
+      <div class="gh-foot">${prof === 'pending' ? 'resolving cp.cnscp.io…' : '⇢ provider writes · ⇠ consumer writes'}${anyAddressed ? ' · ° addressed (not broadcast)' : ''}<br/>${
         isPinned ? '📌 pinned — drag the title to arrange · ✕ this one, Esc all' : 'click the wire to pin — pin as many as you like'}</div>`;
     const next = {};
     for (const r of rows) if (r.value !== undefined) next[r.name] = r.value;

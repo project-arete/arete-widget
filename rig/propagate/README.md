@@ -10,7 +10,7 @@ never see it.
 
 | File | What it is |
 |---|---|
-| `cp-padi.test.propagate.json` | Draft definition of **cp:padi.test.propagate**, ready to register at [cp.padi.io](https://cp.padi.io) (registry JSON shape; flags encoded by key presence) |
+| `cp-padi.test.propagate.json` | Draft definition of **cp:padi.test.propagate**, ready to register at [cp.cnscp.io](https://cp.cnscp.io) (registry JSON shape; flags encoded by key presence) |
 | `propagate-sender.yaml` | Provider widget: posts `bulletin` (propagated), keeps `draft` (not), bumps `ping` |
 | `propagate-receiver.yaml` | Consumer widget: shows what arrives, auto-replies `ping` → `echo`, keeps its own `notes` |
 | `../../scripts/test-propagate.js` | Headless experiment: writes both flavors on both sides, then inspects the raw key namespace and reports where every value did and did not land |
@@ -31,7 +31,7 @@ for development/test profiles):
 
 ## Running the demo
 
-1. **Register the CP** at cp.padi.io from `cp-padi.test.propagate.json`.
+1. **Register the CP** at cp.cnscp.io from `cp-padi.test.propagate.json`.
    Until it exists, everything here is deliberately inert: the widgets fail
    validation ("NOT in the CP registry") and the script skips.
 2. Copy the two YAMLs into `widgets/` (or your local widget folder) and hit

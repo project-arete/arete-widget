@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { installSystemIdPatch } from '../electron/arete-system-id.js';
 import { AreteService } from '../electron/arete-service.js';
 import { WidgetManager } from '../electron/widget-manager.js';
+import { fetchProfile as registryFetch, listProfiles as registryList } from './lib/registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -41,10 +42,7 @@ const profileCache = new Map();
 async function fetchProfile(name) {
   if (profileCache.has(name)) return profileCache.get(name);
   try {
-    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
-      headers: { accept: 'application/json' },
-    });
-    const json = res.ok ? await res.json() : null;
+    const json = await registryFetch(name);
     profileCache.set(name, json);
     return json;
   } catch (_) {
@@ -85,7 +83,7 @@ const lightOf = (id) => manager.getInstance(id).state.cState;
 
 let code = 1;
 try {
-  console.log('1) Loading + validating definitions (incl. lease-bulb) against cp.padi.io ...');
+  console.log('1) Loading + validating definitions (incl. lease-bulb) against cp.cnscp.io ...');
   const defs = await manager.loadDefinitions();
   const lb = defs.find((d) => d.id === 'lease-bulb');
   if (!lb || !lb.ok) throw new Error('lease-bulb failed validation: ' + (lb ? (lb.errors || []).join('; ') : 'not found'));

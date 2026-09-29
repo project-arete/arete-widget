@@ -493,7 +493,7 @@ export class AreteService extends EventEmitter {
 
   // NOTE on CP semantics: this service knows nothing about any specific CP.
   // Widget YAML definitions carry the semantics (validated against the
-  // cp.padi.io registry in widget-manager.js), and the behavior engine in
+  // cp.cnscp.io registry in widget-manager.js), and the behavior engine in
   // core/behavior-engine.js converges instances on their declared rules.
   // We deliberately do NOT use the SDK's provider/consumer .watch() — it has a
   // null-match crash bug (key.match() can return null before .length) and can

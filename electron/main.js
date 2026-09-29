@@ -19,7 +19,8 @@ import { installSystemIdPatch } from './arete-system-id.js';
 import { AreteService } from './arete-service.js';
 import { WidgetManager } from './widget-manager.js';
 import { ComposeRunner } from './compose-runner.js';
-import { validateDefinition, parseProfile, orderDefinition } from '../core/widget-spec.js';
+import { validateDefinition, parseProfile, orderDefinition, whyProfileRefused } from '../core/widget-spec.js';
+import { createProfiles, pickability } from './profiles.js';
 import { computeActions } from '../core/behavior-engine.js';
 import * as settings from './settings.js';
 
@@ -108,36 +109,32 @@ function loadOrCreateSeed() {
   }
 }
 
-// CP registry cache — fetched in main so renderers never touch the network.
-const profileCache = new Map();
-async function fetchProfile(name) {
+// CP registry lookup — done in main so renderers never touch the network.
+// The registry is cp.cnscp.io, read through cp-resolver (see profiles.js):
+// published contracts are held for good (a published version never changes);
+// absence and "registry unavailable" are never held, so a Profile that was
+// missing or unreachable is asked for again next time, without a restart.
+const profiles = createProfiles();
+
+// Returns the Profile's contract (tool shape), or { __unresolved: <why> } when
+// it can't be had, or null for an empty name. `version` is the one the realm
+// recorded on a running capability; without it, the highest published,
+// non-Deprecated version (what cns-cli picks at Declare).
+async function fetchProfile(name, version) {
   if (!name) return null;
-  if (profileCache.has(name)) return profileCache.get(name);
   // `local.*` = INTERNAL PROTOTYPE profiles, resolved from the app's own
-  // profiles/ folder and NEVER from cp.padi.io. This is the sanctioned way to
+  // profiles/ folder and NEVER from the registry. This is the sanctioned way to
   // explore a CP's UX before the real contract is designed and published —
   // the hard registry rule stays intact for every other namespace.
   if (name.startsWith('local.')) {
     try {
-      const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'profiles', name + '.json'), 'utf8'));
-      profileCache.set(name, json);
-      return json;
+      return JSON.parse(fs.readFileSync(path.join(ROOT, 'profiles', name + '.json'), 'utf8'));
     } catch (_) {
-      profileCache.set(name, null);
-      return null;
+      return { __unresolved: 'not registered' };
     }
   }
-  try {
-    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
-      headers: { accept: 'application/json' },
-    });
-    const json = res.ok ? await res.json() : null;
-    profileCache.set(name, json);
-    return json;
-  } catch (_) {
-    profileCache.set(name, null);
-    return null;
-  }
+  const got = await profiles.getProfile(name, version);
+  return got.ok ? got.profile : { __unresolved: got.kind };
 }
 
 // ---------------------------------------------------------------------------
@@ -555,7 +552,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('arete:getStatus', () => service.getStatus());
   ipcMain.handle('arete:getKeys', () => service.getKeys());
-  ipcMain.handle('arete:getProfile', (_evt, name) => fetchProfile(name));
+  ipcMain.handle('arete:getProfile', (_evt, name, version) => fetchProfile(name, version));
   ipcMain.handle('arete:openExternal', (_evt, url) => shell.openExternal(url));
   ipcMain.handle('arete:setAutoConnect', (_evt, on) => publicSettings(settings.writeSettings({ autoConnect: !!on })));
 
@@ -729,6 +726,8 @@ app.whenReady().then(async () => {
         profile,
         role,
         ok: !!parsed,
+        version: parsed ? parsed.version : null,
+        why: parsed ? '' : (profile ? whyProfileRefused(profile, profiles[profile]) : ''),
         title: parsed ? parsed.title : '',
         roles: parsed ? parsed.roles : { provider: '', consumer: '' },
         props: parsed ? parsed.props : {},
@@ -800,38 +799,42 @@ app.whenReady().then(async () => {
     }
   });
 
-  // Registry INDEX for the CP picker — one fetch of cp.padi.io/profiles
-  // returns every profile WITH full versions/properties (raw JSON, so the
-  // key-presence flags survive). The same fetch seeds the per-profile cache,
-  // so browsing, validation and offline re-checks all ride on it.
-  let profileIndex = null;
-  const slimIndex = (list) => (list || []).map((p) => {
-    const parsed = parseProfile(p);
+  // Registry LIST for the CP picker — every page of the registry's paged list
+  // (`/profiles`), summaries only: name, title, and each version's status. The
+  // list carries no properties, so a Profile's contract is fetched when it is
+  // picked (compose:profileContract), not in bulk. A Profile with no published
+  // version is listed and marked, and can't be picked (Deprecated is shown,
+  // not offered).
+  let profileList = null;
+  const slimList = (list) => (list || []).map((p) => {
+    const pk = pickability(p);
     return {
       name: p.name,
       title: p.title || '',
-      comment: p.comment || '',
-      company: p.company || '',
-      modified: p.modified || '',
-      roles: parsed ? parsed.roles : { provider: '', consumer: '' },
-      props: parsed ? parsed.props : null,
+      versions: Array.isArray(p.versions) ? p.versions.map((v) => ({ version: v.version, status: v.status })) : [],
+      pickable: pk.pickable,
+      current: pk.current,
+      why: pk.why,
     };
   }).filter((p) => p.name);
   ipcMain.handle('compose:profileIndex', async (_evt, refresh) => {
-    if (!profileIndex || refresh) {
-      try {
-        const url = 'https://cp.padi.io/profiles' + (refresh ? '?cb=' + Date.now() : '');
-        const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const list = await res.json();
-        if (!Array.isArray(list)) throw new Error('not a profile list');
-        profileIndex = list;
-        for (const p of list) if (p && p.name) profileCache.set(p.name, p);
-      } catch (e) {
-        return { ok: !!profileIndex, error: String(e.message || e), profiles: slimIndex(profileIndex) };
+    if (!profileList || refresh) {
+      const got = await profiles.listProfiles();
+      if (got.ok) {
+        profileList = got.entries;
+      } else {
+        // Keep the last good list on screen; the next open asks again.
+        return { ok: false, error: got.kind === 'registry unavailable' ? 'registry unavailable' : (got.error || 'registry unavailable'), profiles: slimList(profileList) };
       }
     }
-    return { ok: true, profiles: slimIndex(profileIndex) };
+    return { ok: true, profiles: slimList(profileList) };
+  });
+  // One Profile's contract, for the picker's role text and property count.
+  ipcMain.handle('compose:profileContract', async (_evt, name) => {
+    const json = await fetchProfile(name);
+    const parsed = parseProfile(json);
+    if (!parsed) return { ok: false, kind: (json && json.__unresolved) || 'not registered' };
+    return { ok: true, title: parsed.title, version: parsed.version, roles: parsed.roles, props: parsed.props, description: (json && json.description) || '' };
   });
 
   // ---- Composer go-live (Phase 3): run the draft on the realm ----

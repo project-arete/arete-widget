@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/test-compose-ui.js — drive the REAL renderer/compose.js in jsdom
 // with a stubbed window.arete whose compose calls run the REAL core
-// (widget-spec + behavior engine + js-yaml), against the live cp.padi.io
+// (widget-spec + behavior engine + js-yaml), against the live registry (cp.cnscp.io)
 // profile for padi.light. Companion to test-compose.js: that one proves the
 // data invariant; this one proves the Compose tab actually drives it.
 //
@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import { validateDefinition, parseProfile, orderDefinition } from '../core/widget-spec.js';
 import { computeActions } from '../core/behavior-engine.js';
+import { fetchProfile as registryFetch, listProfiles as registryList } from './lib/registry.js';
 
 let JSDOM;
 try {
@@ -26,42 +27,35 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(ROOT + '/renderer/index.html', 'utf8');
 const composejs = fs.readFileSync(ROOT + '/renderer/compose.js', 'utf8');
 
-// ---- live profile (single fetch; the composer stub serves it from cache) ----
+// ---- live profile (through the resolver; the composer stub serves it from cache) ----
 async function fetchProfile(name) {
-  try {
-    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(15000),
-    });
-    return res.ok ? await res.json() : null;
-  } catch (_) {
-    return null;
-  }
+  return registryFetch(name);
 }
 const PROFILES = { 'padi.light': await fetchProfile('padi.light') };
 if (!PROFILES['padi.light']) {
-  console.log('cp.padi.io unreachable — skipping Compose UI test (needs the live registry).');
+  console.log('the CP registry is unreachable — skipping Compose UI test (needs the live registry).');
   process.exit(0);
 }
 
-// live registry index, slimmed the way main.js serves it to the picker
+// live registry list, slimmed the way main.js serves it to the picker
+function pickability(entry) {
+  const vs = Array.isArray(entry && entry.versions) ? entry.versions : [];
+  const published = vs.filter((v) => v && v.status === 'published');
+  if (published.length) return { pickable: true, current: Math.max(...published.map((v) => v.version)), why: '' };
+  if (vs.some((v) => v && v.status === 'deprecated')) return { pickable: false, current: null, why: 'deprecated' };
+  return { pickable: false, current: null, why: 'nothing published' };
+}
 async function fetchIndex() {
-  try {
-    const res = await fetch('https://cp.padi.io/profiles', { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
-    const list = res.ok ? await res.json() : null;
-    if (!Array.isArray(list)) return null;
-    for (const p of list) if (p && p.name) PROFILES[p.name] = p;
-    return list.map((p) => {
-      const parsed = parseProfile(p);
-      return { name: p.name, title: p.title || '', comment: p.comment || '', company: p.company || '', modified: p.modified || '', roles: parsed ? parsed.roles : { provider: '', consumer: '' }, props: parsed ? parsed.props : null };
-    }).filter((p) => p.name);
-  } catch (_) {
-    return null;
-  }
+  const list = await registryList();
+  if (!Array.isArray(list)) return null;
+  return list.map((p) => {
+    const pk = pickability(p);
+    return { name: p.name, title: p.title || '', versions: (p.versions || []).map((v) => ({ version: v.version, status: v.status })), pickable: pk.pickable, current: pk.current, why: pk.why };
+  }).filter((p) => p.name);
 }
 const INDEX = await fetchIndex();
 if (!INDEX) {
-  console.log('cp.padi.io index unreachable — skipping Compose UI test.');
+  console.log('the CP registry list is unreachable — skipping Compose UI test.');
   process.exit(0);
 }
 
@@ -115,6 +109,11 @@ window.arete = {
     : null),
   composeFaceplateHtml: async () => fs.readFileSync(ROOT + '/renderer/faceplate.html', 'utf8'),
   composeProfileIndex: async () => ({ ok: true, profiles: INDEX }),
+  composeProfileContract: async (name) => {
+    const json = await fetchProfile(name);
+    const parsed = parseProfile(json);
+    return parsed ? { ok: true, title: parsed.title, version: parsed.version, roles: parsed.roles, props: parsed.props, description: (json && json.description) || '' } : { ok: false, kind: 'not registered' };
+  },
   composeGoLive: async (spec) => { window.__goLive.push(spec); return { ok: true, systemId: 'SYS', nodeId: spec.nodeId, contextId: spec.contextId }; },
   composeLiveAction: async (a) => window.__liveActions.push(a),
   composeLiveStop: async () => { window.__liveStops = (window.__liveStops || 0) + 1; },
@@ -149,15 +148,35 @@ check('empty-capability draft reports issues', $('cmpStatus').classList.contains
 // add a capability THROUGH THE REGISTRY PICKER (Phase 2)
 $('cmpCapAdd').click();
 await sleep(300);
-check('picker opens with the registry index', !!$('cmpPkSearch') && $('cmpPkList').querySelectorAll('.cmp-pk-row').length >= 40);
+check('picker opens with the registry list (every page)', !!$('cmpPkSearch') && $('cmpPkList').querySelectorAll('.cmp-pk-row').length >= 40);
 const search = $('cmpPkSearch');
+// W6: a Profile with no published version is listed and marked, and can't be picked
+for (const [q, tag, what] of [['padi.test.claude-demo', 'Deprecated only', 'only Deprecated'], ['padi.appliance', 'nothing published', 'nothing published']]) {
+  const inp = $('cmpPkSearch');
+  inp.value = q;
+  inp.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(150);
+  const row = [...$('cmpPkList').querySelectorAll('.cmp-pk-row')].find((r) => r.querySelector('.pn').textContent === q);
+  check(`${what}: listed and marked "${tag}"`, !!row && row.querySelector('.pc').textContent === tag, row ? row.querySelector('.pc').textContent : 'no row');
+  if (row) {
+    row.dispatchEvent(new window.Event('click', { bubbles: true }));
+    await sleep(150);
+    check(`${what}: no role buttons — can't be picked`, !$('cmpCaps').querySelector('.cmp-pk-add') && $('cmpCaps').querySelector('.cmp-pk-prev'));
+  }
+}
+$('cmpPkSearch').value = '';
+$('cmpPkSearch').dispatchEvent(new window.Event('input', { bubbles: true }));
+await sleep(100);
 search.value = 'padi.light';
 search.dispatchEvent(new window.Event('input', { bubbles: true }));
 await sleep(150);
 const rows0 = $('cmpPkList').querySelectorAll('.cmp-pk-row');
-check('search narrows to padi.light', rows0.length === 1 && rows0[0].textContent.includes('padi.light'));
-rows0[0].dispatchEvent(new window.Event('click', { bubbles: true }));
-await sleep(150);
+const lightRow = [...rows0].find((r) => r.querySelector('.pn').textContent === 'padi.light');
+check('search narrows to padi.light (and padi.lighting)', !!lightRow && rows0.length >= 1 && rows0.length <= 3 && [...rows0].every((r) => r.textContent.includes('padi.light')), String(rows0.length));
+check('rows show the current version', lightRow.querySelector('.pc').textContent === 'v1', lightRow.querySelector('.pc').textContent);
+lightRow.dispatchEvent(new window.Event('click', { bubbles: true }));
+// the picked Profile's contract is fetched when it is picked (not in the list)
+for (let i = 0; i < 40 && !$('cmpCaps').querySelector('.cmp-pk-add button'); i++) await sleep(100);
 const prev = $('cmpCaps').querySelector('.cmp-pk-prev');
 check('preview asks for the role FIRST (no property table yet)', !!prev && !prev.textContent.includes('sOut'));
 check('role buttons carry the CP use-case descriptions', prev.textContent.includes('A Light being controlled') && prev.textContent.includes('A Controller'));

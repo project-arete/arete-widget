@@ -5,17 +5,18 @@
 // stands or falls on the ROUND-TRIP: definition file -> canonical re-emit
 // (orderDefinition + yaml.dump) -> reparse -> SAME validated model. This
 // script proves it for every bundled widget and every widget-library widget
-// it can find, against the LIVE cp.padi.io registry, plus synthetic checks:
+// it can find, against the LIVE cp.cnscp.io registry, plus synthetic checks:
 // the additive meta block, and preservation of unknown rule clauses (a v33
 // gate/is/else widget must survive a v32-era Composer untouched).
 //
-// Run: npm run test:compose   (needs network to cp.padi.io)
+// Run: npm run test:compose   (needs network to cp.cnscp.io)
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import { validateDefinition, orderDefinition, parseProfile, PRIMITIVES } from '../core/widget-spec.js';
+import { fetchProfile as registryFetch, listProfiles as registryList } from './lib/registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -32,11 +33,7 @@ const profileCache = new Map();
 async function fetchProfile(name) {
   if (profileCache.has(name)) return profileCache.get(name);
   try {
-    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(15000),
-    });
-    const json = res.ok ? await res.json() : null;
+    const json = await registryFetch(name);
     profileCache.set(name, json);
     return json;
   } catch (e) {
@@ -148,17 +145,18 @@ console.log('— spec additions —');
 }
 check('PRIMITIVES exported for authoring surfaces', Array.isArray(PRIMITIVES) && PRIMITIVES.length === 12);
 
-console.log('— registry index (the CP picker\'s data source) —');
+console.log('— registry list (the CP picker\'s data source) —');
 {
-  // One GET of cp.padi.io/profiles returns EVERY profile with full
-  // versions/properties — the picker (compose:profileIndex) rides on this.
-  const res = await fetch('https://cp.padi.io/profiles', { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
-  const list = res.ok ? await res.json() : null;
-  check('GET /profiles returns the registry index', Array.isArray(list) && list.length >= 40);
+  // The registry's paged list returns summaries only (name, title, each
+  // version's status); the picker reads every page and fetches a Profile's
+  // properties when it is picked (compose:profileContract).
+  const list = await registryList();
+  check('the registry list reads (all pages)', Array.isArray(list) && list.length >= 10);
   const light = Array.isArray(list) ? list.find((p) => p.name === 'padi.light') : null;
-  check('index entries carry full versions inline', !!(light && Array.isArray(light.versions) && light.versions.length));
-  const parsed = light ? parseProfile(light) : null;
-  check('parseProfile works on an index entry (flags survive)',
+  check('list entries carry each version\'s status', !!(light && Array.isArray(light.versions) && light.versions.length && light.versions[0].status));
+  check('list entries carry no properties (contract is fetched on pick)', !!(light && !('properties' in light)));
+  const parsed = parseProfile(await fetchProfile('padi.light'));
+  check('parseProfile works on the picked Profile (flags survive)',
     !!(parsed && parsed.props.sOut && parsed.props.sOut.propagate && parsed.props.sOut.writer === 'server'));
 }
 

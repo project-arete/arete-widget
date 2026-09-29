@@ -5,7 +5,7 @@
 //   3. offline resilience: server gone -> cached library copies still load
 //   4. the real published catalog serves and validates end-to-end
 //
-// Needs network only for CP-registry validation (cp.padi.io) and step 4.
+// Needs network only for CP-registry validation (cp.cnscp.io) and step 4.
 
 import fs from 'node:fs';
 import http from 'node:http';
@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { WidgetManager } from '../electron/widget-manager.js';
+import { fetchProfile as registryFetch, listProfiles as registryList } from './lib/registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -22,10 +23,7 @@ const profileCache = new Map();
 async function fetchProfile(name) {
   if (profileCache.has(name)) return profileCache.get(name);
   try {
-    const res = await fetch('https://cp.padi.io/profiles/' + encodeURIComponent(name), {
-      headers: { accept: 'application/json' },
-    });
-    const json = res.ok ? await res.json() : null;
+    const json = await registryFetch(name);
     profileCache.set(name, json);
     return json;
   } catch (_) {

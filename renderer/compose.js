@@ -309,11 +309,15 @@
   }
 
   // ---------------------------------------------------- CP registry picker
-  // Phase 2: browse/search cp.padi.io instead of typing CP names. One index
-  // fetch (main caches it and seeds the per-profile cache) powers search,
-  // the property/flag preview, and role choice.
+  // Phase 2: browse/search the CP registry (cp.cnscp.io) instead of typing CP
+  // names. The registry's list is paged and carries summaries only (name,
+  // title, each version's status); main reads every page. A Profile's contract
+  // (roles, properties) is fetched when it is picked, not in bulk. A Profile
+  // with no published version is listed and marked but can't be picked:
+  // Deprecated is shown, not offered.
   let pickerOpen = false;
-  let pickerIndex = null; // [{name,title,comment,company,modified,props}]
+  let pickerIndex = null; // [{name,title,versions,pickable,current,why}]
+  const pickerContracts = {}; // name -> {ok,title,roles,props,description} | {ok:false,kind} | 'loading'
   let pickerError = '';
   let pickerFilter = '';
   let pickerSel = null;   // expanded profile name
@@ -321,7 +325,8 @@
   async function loadPickerIndex(refresh) {
     const res = await window.arete.composeProfileIndex(!!refresh);
     pickerIndex = res.profiles || [];
-    pickerError = res.ok ? '' : (res.error || 'registry unreachable');
+    pickerError = res.ok ? '' : (res.error || 'registry unavailable');
+    if (refresh) for (const k of Object.keys(pickerContracts)) delete pickerContracts[k];
   }
 
   // Role choice comes FIRST — a connection always has two ends, and which
@@ -345,7 +350,7 @@
     }
     const q = pickerFilter.trim().toLowerCase();
     const hits = pickerIndex
-      .filter((p) => !q || [p.name, p.title, p.comment, p.company].some((x) => (x || '').toLowerCase().includes(q)))
+      .filter((p) => !q || [p.name, p.title].some((x) => (x || '').toLowerCase().includes(q)))
       .sort((a, b) => a.name.localeCompare(b.name));
     box.innerHTML = `
       <div class="cmp-pk-head">
@@ -353,7 +358,7 @@
         <button type="button" class="ghost" id="cmpPkRefresh" title="Re-fetch the registry index (cache-busted)">↻</button>
         <button type="button" class="ghost" id="cmpPkClose" title="Close">✕</button>
       </div>
-      ${pickerError ? `<p class="cmp-err">${esc(pickerError)} — showing the cached index.</p>` : ''}
+      ${pickerError ? `<p class="cmp-err">${esc(pickerError)}${pickerIndex.length ? ' — showing the last list.' : ' — press ↻ to try again.'}</p>` : ''}
       <div class="cmp-pk-list" id="cmpPkList"></div>`;
     host.appendChild(box);
     const list = box.querySelector('#cmpPkList');
@@ -361,33 +366,53 @@
     for (const p of hits) {
       const row = document.createElement('div');
       row.className = 'cmp-pk-row' + (pickerSel === p.name ? ' on' : '');
+      const tag = p.pickable
+        ? `v${p.current}`
+        : (p.why === 'deprecated' ? 'Deprecated only' : 'nothing published');
       row.innerHTML = `<span class="pn">${esc(p.name)}</span><span class="pt">${esc(p.title)}</span>` +
-        `<span class="pc">${p.props ? Object.keys(p.props).length + ' props' : 'no versions'}</span>`;
-      row.addEventListener('click', () => {
+        `<span class="pc${p.pickable ? '' : ' dim'}">${esc(tag)}</span>`;
+      row.addEventListener('click', async () => {
         pickerSel = pickerSel === p.name ? null : p.name;
         renderCaps();
+        if (pickerSel === p.name && p.pickable && (!pickerContracts[p.name] || pickerContracts[p.name].ok === false)) {
+          pickerContracts[p.name] = 'loading';
+          renderCaps();
+          try { pickerContracts[p.name] = await window.arete.composeProfileContract(p.name); }
+          catch (_) { pickerContracts[p.name] = { ok: false, kind: 'registry unavailable' }; }
+          renderCaps();
+        }
       });
       list.appendChild(row);
       if (pickerSel === p.name) {
         const prev = document.createElement('div');
         prev.className = 'cmp-pk-prev';
-        const dup = (role) => (cur.def.capabilities || []).some((c) => c.profile === p.name && c.role === role);
-        prev.innerHTML = `
-          ${p.comment ? `<p class="muted-note">${esc(p.comment)}${p.company ? ' · ' + esc(p.company) : ''}</p>` : ''}
-          <p class="muted-note">Which end of the connection is this widget? Its properties are listed once the role is picked.</p>
-          <div class="cmp-pk-add">
-            ${pickerRoleBtn(p, 'consumer', !p.props || dup('consumer'))}
-            ${pickerRoleBtn(p, 'provider', !p.props || dup('provider'))}
-          </div>`;
-        prev.querySelectorAll('[data-role]').forEach((b) => b.addEventListener('click', () => {
-          cur.def.capabilities = Array.isArray(cur.def.capabilities) ? cur.def.capabilities : [];
-          cur.def.capabilities.push({ profile: p.name, role: b.dataset.role });
-          pickerOpen = false;
-          pickerSel = null;
-          pickerFilter = '';
-          touched();
-          renderCaps();
-        }));
+        const ct = pickerContracts[p.name];
+        if (!p.pickable) {
+          prev.innerHTML = `<p class="muted-note">${p.why === 'deprecated'
+            ? 'Every version of this Profile is Deprecated. It is shown so you can see it exists, but a new widget can\'t be built on it.'
+            : 'This Profile is registered but has nothing published yet, so it can\'t be used.'}</p>`;
+        } else if (ct === 'loading' || !ct) {
+          prev.innerHTML = '<p class="muted-note">loading this Profile…</p>';
+        } else if (!ct.ok) {
+          prev.innerHTML = `<p class="cmp-err">${esc(ct.kind === 'registry unavailable' ? 'The registry is unreachable right now' : 'This Profile could not be read (' + ct.kind + ')')} — click the row again to retry.</p>`;
+        } else {
+          const dup = (role) => (cur.def.capabilities || []).some((c) => c.profile === p.name && c.role === role);
+          const n = Object.keys(ct.props || {}).length;
+          const btn = (role) => pickerRoleBtn({ roles: ct.roles }, role, dup(role));
+          prev.innerHTML = `
+            ${ct.description ? `<p class="muted-note">${esc(ct.description)}</p>` : ''}
+            <p class="muted-note">Version ${esc(String(ct.version))} · ${n} propert${n === 1 ? 'y' : 'ies'}. Which end of the connection is this widget? Its properties are listed once the role is picked.</p>
+            <div class="cmp-pk-add">${btn('consumer')}${btn('provider')}</div>`;
+          prev.querySelectorAll('[data-role]').forEach((b) => b.addEventListener('click', () => {
+            cur.def.capabilities = Array.isArray(cur.def.capabilities) ? cur.def.capabilities : [];
+            cur.def.capabilities.push({ profile: p.name, role: b.dataset.role });
+            pickerOpen = false;
+            pickerSel = null;
+            pickerFilter = '';
+            touched();
+            renderCaps();
+          }));
+        }
         list.appendChild(prev);
       }
     }
@@ -423,8 +448,8 @@
       const status = !c.profile
         ? '<span class="cmp-cap-status wait">enter a CP name</span>'
         : inf.ok
-          ? `<span class="cmp-cap-status ok">✓ ${esc(inf.title || 'in registry')}</span>`
-          : '<span class="cmp-cap-status bad">not in the CP registry — refused</span>';
+          ? `<span class="cmp-cap-status ok">✓ ${esc(inf.title || 'in registry')}${inf.version ? ' · v' + esc(String(inf.version)) : ''}</span>`
+          : `<span class="cmp-cap-status bad">${esc(inf.why || 'not in the CP registry — refused')}</span>`;
       box.innerHTML = `
         <div class="cmp-cap-head">
           <input type="text" value="${esc(c.profile || '')}" placeholder="padi.light" spellcheck="false" />
