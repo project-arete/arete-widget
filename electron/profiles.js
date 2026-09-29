@@ -24,11 +24,24 @@ const R = globalThis.CPResolver;
 export function createProfiles(opts) {
   const resolver = R.createResolver(opts || {});
 
+  // A held selection surface is what says which version is current. For a NEW
+  // definition (no version asked), if it has not been checked for `staleAfter`
+  // ms, it is revalidated first (a conditional GET: 304 when nothing changed),
+  // so a version published while the tool is open is seen without a restart.
+  // A running widget (a version asked) never needs this: a published contract
+  // never changes.
+  const staleAfter = opts && Number.isFinite(opts.staleAfter) ? opts.staleAfter : 30000;
+  const checked = new Map();
+
   async function getProfile(name, version) {
     if (!name) return { ok: false, kind: R.UNREGISTERED, name };
     try {
       let v = version;
       if (v === undefined || v === null || String(v) === '') {
+        const last = checked.get(name);
+        if (last === undefined || Date.now() - last > staleAfter) {
+          try { await resolver.surface(name); checked.set(name, Date.now()); } catch (_) { /* current() answers from what is held, or says why not */ }
+        }
         const cur = await resolver.current(name);
         if (cur.version === null) return { ok: false, kind: cur.reason, name };
         v = cur.version;

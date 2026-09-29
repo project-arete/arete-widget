@@ -135,6 +135,38 @@ console.log('— W4: v3 published later; a widget running at v2 keeps v2 —');
   check('recorded v2 ≠ validated v3: re-checked against v2', logs.some((l) => /padi\.lighting:2/.test(l)), logs.join(' | '));
 }
 
+// ---------------------------------------------------------------- staleness
+console.log('— a version published while the tool is open —');
+{
+  const mk = () => {
+    const reg = fakeRegistry();
+    const surface = JSON.parse(fs.readFileSync(path.join(FIX, 'padi.lighting.body'), 'utf8'));
+    const v2doc = JSON.parse(fs.readFileSync(path.join(FIX, 'padi.lighting_2.body'), 'utf8'));
+    const h = (f) => Object.fromEntries(parseHeaders(fs.readFileSync(path.join(FIX, f), 'utf8')).headers);
+    const publishV3 = () => {
+      const s3 = JSON.parse(JSON.stringify(surface));
+      s3.versions.push({ ...s3.versions[1], version: 3, href: '/padi.lighting:3', content_hash: 'v3hash' });
+      const d3 = JSON.parse(JSON.stringify(v2doc)); d3.Header.Version = '3';
+      reg.overrides.set('padi.lighting', { body: JSON.stringify(s3), headers: h('padi.lighting.headers') });
+      reg.overrides.set('padi.lighting:3', { body: JSON.stringify(d3), headers: { ...h('padi.lighting_2.headers'), etag: '"v3hash-spec2026"' } });
+    };
+    return { reg, publishV3 };
+  };
+  const a = mk();
+  const P0 = createProfiles({ fetch: a.reg.fetch, retryGap: 0, absentTtl: 0, staleAfter: 0 });
+  check('before: current is v2', (await P0.getProfile('padi.lighting')).profile.version === 2);
+  a.publishV3();
+  check('stale (staleAfter 0): a new definition sees v3 at once', (await P0.getProfile('padi.lighting')).profile.version === 3);
+  const b = mk();
+  const P1 = createProfiles({ fetch: b.reg.fetch, retryGap: 0, absentTtl: 0 });
+  await P1.getProfile('padi.lighting');
+  b.publishV3();
+  const before = b.reg.log.length;
+  const again = await P1.getProfile('padi.lighting');
+  check('fresh (within 30 s): no extra round trip, still v2', again.profile.version === 2 && b.reg.log.length === before);
+  check('a pinned version is never re-asked (a published contract never changes)', (await P1.getProfile('padi.lighting', 2)).profile.version === 2 && b.reg.log.length === before);
+}
+
 // ---------------------------------------------------------------- refusals
 console.log('— the five kinds of "no", in words —');
 {
